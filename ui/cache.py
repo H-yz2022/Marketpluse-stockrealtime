@@ -17,7 +17,7 @@ from stockrt.calendar import now_bj
 from stockrt.sources import eastmoney
 
 
-@st.cache_data(ttl="15s", max_entries=200, show_spinner=False)
+@st.cache_data(ttl="15s", max_entries=100, show_spinner=False)
 def quotes(codes: tuple[str, ...]) -> pd.DataFrame:
     return realtime.quotes(list(codes))
 
@@ -45,22 +45,22 @@ def name_map() -> dict[str, str]:
     return names
 
 
-@st.cache_data(ttl="30s", max_entries=100, show_spinner=False)
+@st.cache_data(ttl="30s", max_entries=48, show_spinner=False)
 def minute_today(code: str):
     return intraday.today(code)
 
 
-@st.cache_data(ttl="2m", max_entries=100, show_spinner=False)
+@st.cache_data(ttl="2m", max_entries=24, show_spinner=False)
 def minute_5day(code: str) -> pd.DataFrame:
     return intraday.five_days(code)
 
 
-@st.cache_data(ttl="1m", max_entries=200, show_spinner=False)
+@st.cache_data(ttl="1m", max_entries=64, show_spinner=False)
 def daily(code: str) -> tuple[pd.DataFrame, str]:
     return history.adjusted_daily(code)
 
 
-@st.cache_data(ttl="2m", max_entries=50, show_spinner=False)
+@st.cache_data(ttl="2m", max_entries=16, show_spinner=False)
 def panel(codes: tuple[str, ...]) -> pd.DataFrame:
     return history.close_panel(list(codes))
 

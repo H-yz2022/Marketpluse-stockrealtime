@@ -6,13 +6,17 @@ import time
 import pandas as pd
 import streamlit as st
 
-from stockrt import http, realtime, selftest
+from stockrt import http, realtime, sample, selftest
 from stockrt.config import CACHE_DIR, SNAPSHOT_DIR
 
 st.markdown("China market data has no official free API. This app reads the JSON / text endpoints behind "
             "Tencent, Sina and East Money's own web pages, converts their units, and falls back between them. "
             "This page shows what is reachable from **your** network right now.")
 
+if sample.is_sample():
+    st.info("The app is on the built-in sample dataset, so the network is switched off and the self-test "
+            "will report every endpoint as unavailable. Turn on **Live data** in the sidebar first.",
+            icon=":material/inventory_2:")
 with st.container(horizontal=True):
     run = st.button("Run self-test", type="primary", icon=":material/speed:",
                     help="One small request to each endpoint (≈ 5 seconds).")

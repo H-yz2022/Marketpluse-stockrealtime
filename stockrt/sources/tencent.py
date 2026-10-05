@@ -16,7 +16,7 @@ from datetime import date, datetime, timedelta
 
 import pandas as pd
 
-from .. import http
+from .. import http, sample
 from ..calendar import BJ, session_of
 from ..symbols import is_index, market, volume_unit
 
@@ -153,6 +153,7 @@ def _quote_batch(codes: list[str]) -> list[dict]:
     return parse_quote_text(r.content.decode("gbk", errors="replace"))
 
 
+@sample.replay("tencent.quotes")
 def quotes(codes: list[str], workers: int = 6) -> pd.DataFrame:
     """Real-time quotes for any mix of A-share, HK, ETF and index symbols."""
     codes = list(dict.fromkeys(codes))
@@ -193,6 +194,7 @@ def _minute_rows(lines: list[str], day: date, code: str) -> pd.DataFrame:
     return df[["datetime", "price", "volume", "amount", "cum_volume", "cum_amount", "session"]]
 
 
+@sample.replay("tencent.minute_today")
 def minute_today(code: str) -> tuple[date, float | None, pd.DataFrame]:
     """Latest session's 1-minute series: (session date, previous close, bars)."""
     j = http.get(MINUTE_URL, params={"code": code}).json()
@@ -203,6 +205,7 @@ def minute_today(code: str) -> tuple[date, float | None, pd.DataFrame]:
     return day, prev_close, _minute_rows(node["data"]["data"], day, code)
 
 
+@sample.replay("tencent.minute_5day")
 def minute_5day(code: str) -> pd.DataFrame:
     """Last five sessions of 1-minute bars (oldest first) with each day's previous close."""
     j = http.get(FIVEDAY_URL, params={"code": code}).json()
@@ -222,6 +225,7 @@ MKLINE_URL = "https://ifzq.gtimg.cn/appstock/app/kline/mkline"
 MKLINE_PERIODS = {"1 min": "m1", "5 min": "m5", "15 min": "m15", "30 min": "m30", "60 min": "m60"}
 
 
+@sample.replay("tencent.minute_ohlc")
 def minute_ohlc(code: str, period: str = "m1", count: int = 800) -> pd.DataFrame:
     """Minute OHLC bars (A-shares only; 800 max = ~3 sessions of 1-min, ~16 of 5-min)."""
     j = http.get(MKLINE_URL, params={"param": f"{code},{period},,{count}"}).json()
@@ -252,6 +256,7 @@ def _kline_page(code: str, start: str, end: str, fq: str) -> list[list]:
     return node.get(f"{fq}day") or node.get("day") or []
 
 
+@sample.replay("tencent.daily")
 def daily(code: str, start: date | None = None, end: date | None = None, fq: str = "") -> pd.DataFrame:
     """Daily OHLCV with amount and turnover rate. fq='' raw, 'qfq' forward, 'hfq' backward
     (Tencent's adjustments are additive - see stockrt.adjust for the ratio method)."""

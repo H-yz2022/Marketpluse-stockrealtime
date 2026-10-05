@@ -1,0 +1,18 @@
+# One-click deploy on Render (https://render.com): New > Blueprint > pick this repo.
+services:
+  - type: web
+    name: china-hk-markets
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: >-
+      streamlit run streamlit_app.py --server.port $PORT --server.address 0.0.0.0
+      --server.headless true --server.fileWatcherType none
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: STOCKRT_DATA_MODE
+        value: sample        # open on the built-in dataset: no scraping, instant start, small memory footprint
+      - key: STOCKRT_LOCK_MODE
+        value: "0"           # "1" hides the live-data switch so public visitors stay on the sample
+      - key: PYTHON_VERSION
+        value: "3.11.9"

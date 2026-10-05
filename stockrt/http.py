@@ -99,6 +99,10 @@ def get(url: str, *, params: dict | None = None, headers: dict | None = None,
 
     fast_fail: no retries, and the host is paused after its first failure
     (for optional enhancers whose absence has a fallback)."""
+    from . import sample
+
+    if sample.is_sample():
+        raise SourceUnavailable("network is off: the app is using the built-in sample dataset")
     host = urlparse(url).hostname or url
     h = _health_for(host)
     now = time.time()

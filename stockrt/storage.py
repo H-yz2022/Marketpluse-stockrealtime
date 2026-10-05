@@ -16,6 +16,7 @@ from typing import Any
 
 import pandas as pd
 
+from . import sample
 from .config import CACHE_DIR
 
 
@@ -37,11 +38,15 @@ def _atomic_write(path: Path, write) -> None:
 
 
 def age_seconds(kind: str, key: str, ext: str = "parquet") -> float | None:
+    if sample.is_sample():
+        return None
     p = _path(kind, key, ext)
     return time.time() - p.stat().st_mtime if p.exists() else None
 
 
 def load_frame(kind: str, key: str) -> pd.DataFrame | None:
+    if sample.is_sample():
+        return None
     p = _path(kind, key, "parquet")
     if not p.exists():
         return None
@@ -52,10 +57,14 @@ def load_frame(kind: str, key: str) -> pd.DataFrame | None:
 
 
 def save_frame(kind: str, key: str, df: pd.DataFrame) -> None:
+    if sample.is_sample():
+        return
     _atomic_write(_path(kind, key, "parquet"), lambda tmp: df.to_parquet(tmp, index=False))
 
 
 def load_json(kind: str, key: str, max_age: float | None = None) -> Any | None:
+    if sample.is_sample():
+        return None
     p = _path(kind, key, "json")
     if not p.exists():
         return None
@@ -68,5 +77,7 @@ def load_json(kind: str, key: str, max_age: float | None = None) -> Any | None:
 
 
 def save_json(kind: str, key: str, obj: Any) -> None:
+    if sample.is_sample():
+        return
     text = json.dumps(obj, ensure_ascii=False, default=str)
     _atomic_write(_path(kind, key, "json"), lambda tmp: Path(tmp).write_text(text, encoding="utf-8"))

@@ -56,6 +56,8 @@ def cut(bars: pd.DataFrame, hhmm: str | None) -> pd.DataFrame:
 
 def stats(bars: pd.DataFrame, prev_close: float | None, mkt: str) -> dict:
     """Session statistics for (possibly cut) intraday bars."""
+    if bars.empty or "session" not in bars:
+        return {}
     reg = bars[bars["session"].isin(["AM", "PM"])]
     if reg.empty:
         return {}

@@ -27,10 +27,39 @@ Requires Python 3.10+.
 
 ```bash
 pip install -r requirements.txt
+```
+
+```bash
 streamlit run streamlit_app.py
 ```
 
-The app opens at http://localhost:8501. The first load downloads the stock lists (~20 s, then cached).
+The app opens at http://localhost:8501 with **live data**. The first load downloads the stock lists (~20 s, then cached).
+
+## Built-in sample data (offline mode)
+
+`sample_data/` (~16 MB) is a fixed snapshot of one trading session, built with `scripts/build_sample.py`. It holds:
+
+- every A-share and HK quote, with main-fund flow;
+- 10 years of daily bars for the 57 starter symbols, ETFs and indices, and ~60 sessions for every other A-share;
+- 5 sessions of 1-minute data, plus adjustment factors, ETF fees and announcements.
+
+In sample mode every page works with **no network at all**. The site opens instantly, scrapes
+nothing and stays small in memory, which suits a free hosting tier. Turn on **Live data** in the
+sidebar for real-time prices, or start the app in sample mode:
+
+```bash
+STOCKRT_DATA_MODE=sample streamlit run streamlit_app.py
+```
+
+(On Windows PowerShell: `$env:STOCKRT_DATA_MODE="sample"; streamlit run streamlit_app.py`.) To refresh
+the sample with a newer session, run `python scripts/build_sample.py` (~6 minutes).
+
+## Deploy (free)
+
+Push to GitHub, then on [Render](https://render.com) choose **New → Blueprint** and pick the repo.
+`render.yaml` starts the app on the free plan in sample mode. Set `STOCKRT_LOCK_MODE=1` to stop
+visitors switching it to live. Streamlit Community Cloud also works: point it at
+`streamlit_app.py` and add `STOCKRT_DATA_MODE = "sample"` under its secrets / environment settings.
 
 ## Data, in one paragraph
 
@@ -62,6 +91,10 @@ use Windows Task Scheduler; the exact command is on the *Data downloads → Bulk
 ## Tests
 
 ```bash
+pip install -r requirements-dev.txt
+```
+
+```bash
 python -m pytest -q
 ```
 
@@ -69,8 +102,9 @@ python -m pytest -q
 python -m ruff check .
 ```
 
-The 48 tests run offline: parsers are checked against recorded real responses, and the
-adjustment math against known ex-dividend days.
+The 52 tests run offline: parsers are checked against recorded real responses, the adjustment
+math against known ex-dividend days, and every page is rendered against the sample dataset.
+GitHub Actions runs them on each push.
 
 ## Layout
 
@@ -89,8 +123,10 @@ stockrt/              UI-agnostic data layer (reusable behind FastAPI later)
   screener.py         rule engine and presets
   sentiment.py        rule-based sentiment
   etfs.py             ETF scorecard
+  sample.py           offline replay of every provider from sample_data/
   export.py, query.py, prompts.py, capture.py, selftest.py
-scripts/              download_daily.py, capture_snapshot.py
+scripts/              download_daily.py, capture_snapshot.py, build_sample.py
+sample_data/          built-in offline dataset (see sample_data/README.md)
 tests/                offline tests + recorded fixtures
 docs/DATA_SOURCES.md  endpoint map, quirks, verification
 ```
@@ -108,4 +144,6 @@ docs/DATA_SOURCES.md  endpoint map, quirks, verification
 - These endpoints are unofficial and can change without notice; the Data sources page shows when
   one breaks.
 
-*Research tooling, not investment advice.*
+*Research tooling, not investment advice.* Code under the [MIT License](LICENSE). Market data in
+`sample_data/` comes from Tencent, Sina and East Money public endpoints, belongs to them, and is included only
+as a small demonstration sample.

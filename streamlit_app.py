@@ -3,9 +3,11 @@
 Run:  streamlit run streamlit_app.py
 """
 
+import os
+
 import streamlit as st
 
-from stockrt import watchlist
+from stockrt import sample, watchlist
 from stockrt.calendar import now_bj, status
 from stockrt.config import DEFAULT_RISK_FREE
 
@@ -51,8 +53,17 @@ def market_clock() -> None:
     st.caption("Holidays aren't in the calendar: when a market is shut, pages show the last session.")
 
 
+def switch_data_mode() -> None:
+    sample.set_mode("live" if st.session_state.live_data else "sample")
+    st.cache_data.clear()
+
+
 with st.sidebar:
     market_clock()
+    st.toggle("Live data", value=not sample.is_sample(), key="live_data", on_change=switch_data_mode,
+              disabled=not sample.available() or os.environ.get("STOCKRT_LOCK_MODE") == "1",
+              help="Off: the built-in sample dataset - instant, offline, nothing fetched. "
+                   "On: real-time data from Tencent, Sina and East Money.")
     with st.expander("Settings", icon=":material/tune:"):
         st.toggle("Red = up (mainland convention)", key="up_red",
                   help="Off: green = up, red = down (Western / many HK apps).")
@@ -60,4 +71,8 @@ with st.sidebar:
                         help="Used by Sharpe and Sortino ratios. Default ≈ 1-year China government bond yield.")
 
 st.session_state.rf = st.session_state.rf_pct / 100
+if sample.is_sample():
+    with st.container(horizontal=True, vertical_alignment="center"):
+        st.badge("Sample data", icon=":material/inventory_2:", color="orange")
+        st.caption(sample.describe() + " Turn on **Live data** in the sidebar for real-time prices.")
 page.run()

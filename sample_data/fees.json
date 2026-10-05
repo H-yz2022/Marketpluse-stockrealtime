@@ -1,0 +1,62 @@
+{
+ "sh510300": {
+  "management": 0.15,
+  "custody": 0.05,
+  "sales_service": null,
+  "total": 0.2
+ },
+ "sh510050": {
+  "management": 0.15,
+  "custody": 0.05,
+  "sales_service": null,
+  "total": 0.2
+ },
+ "sh510500": {
+  "management": 0.15,
+  "custody": 0.05,
+  "sales_service": null,
+  "total": 0.2
+ },
+ "sh512100": {
+  "management": 0.15,
+  "custody": 0.05,
+  "sales_service": null,
+  "total": 0.2
+ },
+ "sz159915": {
+  "management": 0.15,
+  "custody": 0.05,
+  "sales_service": null,
+  "total": 0.2
+ },
+ "sh588000": {
+  "management": 0.15,
+  "custody": 0.05,
+  "sales_service": null,
+  "total": 0.2
+ },
+ "sh510880": {
+  "management": 0.5,
+  "custody": 0.1,
+  "sales_service": null,
+  "total": 0.6
+ },
+ "sh512800": {
+  "management": 0.5,
+  "custody": 0.1,
+  "sales_service": null,
+  "total": 0.6
+ },
+ "sh512690": {
+  "management": 0.5,
+  "custody": 0.1,
+  "sales_service": null,
+  "total": 0.6
+ },
+ "sh515880": {
+  "management": 0.5,
+  "custody": 0.1,
+  "sales_service": null,
+  "total": 0.6
+ }
+}

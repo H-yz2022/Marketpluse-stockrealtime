@@ -18,7 +18,7 @@ from datetime import date
 
 import pandas as pd
 
-from .. import http
+from .. import http, sample
 from ..symbols import bare
 
 HEADERS = {"Referer": "https://finance.sina.com.cn"}
@@ -64,6 +64,7 @@ def _pages(method: str, node: str, total: int, page_size: int = PAGE, workers: i
     return [row for b in batches for row in b]
 
 
+@sample.replay("sina.universe_cn")
 def universe_cn() -> pd.DataFrame:
     """Every A-share listed on Shanghai, Shenzhen and Beijing (code, name, board data)."""
     total = _count("Market_Center.getHQNodeStockCount", "hs_a")
@@ -83,6 +84,7 @@ def universe_cn() -> pd.DataFrame:
     return out.drop_duplicates("code").reset_index(drop=True)
 
 
+@sample.replay("sina.universe_hk")
 def universe_hk() -> pd.DataFrame:
     total = _count("Market_Center.getHKStockCount", "qbgg_hk")
     # The HK endpoint silently caps pages at 60 rows whatever `num` says.
@@ -108,6 +110,7 @@ def _js_object(text: str) -> dict:
     return json.loads(m.group(1))
 
 
+@sample.replay("sina.factor_segments")
 def factor_segments(code: str) -> list[tuple[date, float, float]]:
     """Affine segments (start_date, a, b): adjusted = a * raw + b from start_date onward.
 
@@ -140,6 +143,7 @@ def factor_segments(code: str) -> list[tuple[date, float, float]]:
 
 # --------------------------------------------------------------------------- money flow
 
+@sample.replay("sina.money_flow")
 def money_flow(code: str) -> dict:
     """Today's money flow for one A-share, split by order size (CNY).
 
@@ -167,6 +171,7 @@ def money_flow(code: str) -> dict:
     }
 
 
+@sample.replay("sina.money_flow_rank")
 def money_flow_rank(workers: int = 4) -> pd.DataFrame:
     """Main-fund net inflow for every A-share and fund (slow: ~65 pages)."""
     method = API + "MoneyFlow.ssl_bkzj_ssggzj"

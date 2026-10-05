@@ -14,6 +14,7 @@ env/
 
 # Data (generated locally: cache, snapshots, watchlist, saved prompts)
 data/
+sample_data.tmp/
 
 # Local tooling / OS / editor
 .claude/

@@ -151,7 +151,7 @@ def close_panel(codes: list[str], start: date | None = None, workers: int = 6) -
     series = [r for r in results if isinstance(r, pd.Series)]
     if not series:
         return pd.DataFrame()
-    panel = pd.concat(series, axis=1).sort_index()
+    panel = pd.concat(series, axis=1, sort=True)
     if start is not None:
         panel = panel[panel.index >= pd.Timestamp(start)]
     return panel

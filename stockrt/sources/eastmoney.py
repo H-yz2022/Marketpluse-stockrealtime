@@ -17,7 +17,7 @@ import re
 
 import pandas as pd
 
-from .. import http
+from .. import http, sample
 from ..symbols import bare, em_secid, from_em_secid, market
 
 PUSH_HOSTS = ["https://82.push2.eastmoney.com", "https://push2.eastmoney.com"]
@@ -38,6 +38,7 @@ def _push(path: str, params: dict) -> dict:
     raise http.SourceUnavailable(f"eastmoney {path}: {last}")
 
 
+@sample.replay("eastmoney.main_flow_batch")
 def main_flow_batch(codes: list[str]) -> pd.DataFrame:
     """Today's main-fund net inflow (CNY/HKD) for up to a few hundred symbols."""
     rows = []
@@ -58,6 +59,7 @@ def main_flow_batch(codes: list[str]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+@sample.replay("eastmoney.intraday_flow")
 def intraday_flow(code: str) -> pd.DataFrame:
     """Cumulative money flow by order size for each minute of the latest session."""
     data = _push("/api/qt/stock/fflow/kline/get", {
@@ -72,6 +74,7 @@ def intraday_flow(code: str) -> pd.DataFrame:
     return pd.DataFrame(recs)
 
 
+@sample.replay("eastmoney.fund_fees")
 def fund_fees(code: str) -> dict:
     """Annual fee rates (percent) from the fund's F10 fee page."""
     html = http.get(f"https://fundf10.eastmoney.com/jjfl_{bare(code)}.html", timeout=15).text
@@ -84,6 +87,7 @@ def fund_fees(code: str) -> dict:
     return out
 
 
+@sample.replay("eastmoney.fund_profile")
 def fund_profile(code: str) -> dict:
     j = http.get("https://fundmobapi.eastmoney.com/FundMApi/FundBaseTypeInformation.ashx",
                  params={"FCODE": bare(code), "deviceid": "Wap", "plat": "Wap", "product": "EFund",
@@ -97,6 +101,7 @@ def fund_profile(code: str) -> dict:
     }
 
 
+@sample.replay("eastmoney.announcements")
 def announcements(code: str, n: int = 30) -> pd.DataFrame:
     """Latest company announcements (title, date, category)."""
     ann_type = "H" if market(code) == "HK" else "A"
