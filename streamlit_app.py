@@ -4,12 +4,14 @@ Run:  streamlit run streamlit_app.py
 """
 
 import os
+from datetime import time
 
 import streamlit as st
 
 from stockrt import sample, watchlist
 from stockrt.calendar import now_bj, status
 from stockrt.config import DEFAULT_RISK_FREE
+from ui import cache
 
 st.set_page_config(
     page_title="China & HK markets",
@@ -25,10 +27,14 @@ if "watchlist" not in st.session_state:
 
 page = st.navigation(
     {
+        "": [
+            st.Page("app_pages/picks.py", title="Picks at 14:00 / 14:30", icon=":material/leaderboard:",
+                    default=True),
+        ],
         "Markets": [
-            st.Page("app_pages/live.py", title="Live dashboard", icon=":material/monitoring:", default=True),
-            st.Page("app_pages/intraday.py", title="Intraday at 14:00", icon=":material/schedule:"),
             st.Page("app_pages/screener.py", title="Screener & query", icon=":material/filter_alt:"),
+            st.Page("app_pages/intraday.py", title="Intraday at 14:00", icon=":material/schedule:"),
+            st.Page("app_pages/live.py", title="Live dashboard", icon=":material/monitoring:"),
             st.Page("app_pages/compare.py", title="Compare & watchlist", icon=":material/compare_arrows:"),
             st.Page("app_pages/etfs.py", title="Index ETFs", icon=":material/account_balance:"),
         ],
@@ -42,15 +48,31 @@ page = st.navigation(
 )
 
 
+def last_print_dates() -> dict[str, object]:
+    """Date of each market's latest index quote - a holiday shows up as no print today."""
+    if sample.is_sample():
+        return {}
+    try:
+        q = cache.quotes(("sh000300", "hkHSI")).set_index("code")["time"]
+        return {"CN": q["sh000300"].date(), "HK": q["hkHSI"].date()}
+    except Exception:  # noqa: BLE001 - the clock still works without it
+        return {}
+
+
 @st.fragment(run_every="30s")
 def market_clock() -> None:
     now = now_bj()
     st.markdown(f"**{now:%a %d %b %Y · %H:%M}** Beijing / HK time")
+    last = last_print_dates()
     for mkt, label in (("CN", "A-shares"), ("HK", "Hong Kong")):
         s = status(mkt, now)
+        text = s.label
         color = "green" if s.is_trading else ("orange" if s.phase in ("lunch", "pre-open", "closing auction") else "gray")
-        st.markdown(f":{color}-badge[{label}] {s.label}")
-    st.caption("Holidays aren't in the calendar: when a market is shut, pages show the last session.")
+        in_hours = s.phase in ("morning", "lunch", "afternoon", "closing auction") and now.time() >= time(9, 32)
+        if in_hours and last.get(mkt) and last[mkt] < now.date():
+            text, color = "Closed today (holiday)", "gray"
+        st.markdown(f":{color}-badge[{label}] {text}")
+    st.caption("When a market is shut, pages show its last session.")
 
 
 def switch_data_mode() -> None:

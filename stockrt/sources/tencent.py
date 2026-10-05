@@ -196,7 +196,24 @@ def _minute_rows(lines: list[str], day: date, code: str) -> pd.DataFrame:
 
 @sample.replay("tencent.minute_today")
 def minute_today(code: str) -> tuple[date, float | None, pd.DataFrame]:
-    """Latest session's 1-minute series: (session date, previous close, bars)."""
+    """Latest session's 1-minute series: (session date, previous close, bars).
+
+    Falls back to the latest day of the 5-session endpoint when minute/query is
+    unavailable (seen returning HTTP 501 for every symbol while day/query worked)."""
+    try:
+        return _minute_query(code)
+    except (http.SourceUnavailable, KeyError, ValueError):
+        five = minute_5day(code)
+        if five.empty:
+            raise
+        day = five["date"].max()
+        last = five[five["date"] == day]
+        pc = last["prev_close"].iloc[0]
+        bars = last.drop(columns=["date", "prev_close"]).reset_index(drop=True)
+        return day, (float(pc) if pd.notna(pc) else None), bars
+
+
+def _minute_query(code: str) -> tuple[date, float | None, pd.DataFrame]:
     j = http.get(MINUTE_URL, params={"code": code}).json()
     node = j["data"][code]
     day = datetime.strptime(node["data"]["date"], "%Y%m%d").date()

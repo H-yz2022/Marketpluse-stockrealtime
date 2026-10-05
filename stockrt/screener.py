@@ -184,6 +184,29 @@ def history_features(code: str, quote: dict) -> dict:
     if len(bars) < 12:
         return {"code": code, "history_ok": False}
     close, vol = bars["close"].reset_index(drop=True), bars["volume"].reset_index(drop=True)
+    trend = trend_features(close)
+    # Pace-adjust today's volume when the quote is from a session still in progress.
+    st = session_status("CN")
+    qt = quote.get("time")
+    live_today = qt is not None and pd.Timestamp(qt).date() == now_bj().date() and st.phase in (
+        "morning", "lunch", "afternoon")
+    frac = max(st.fraction, 1 / 240) if live_today else 1.0
+    today_vol = float(vol.iloc[-1])
+    return {
+        "code": code,
+        "history_ok": True,
+        **trend,
+        "prev_volume": float(vol.iloc[-2]),
+        "projected_volume": today_vol / frac,
+        "ret_5d": float(close.iloc[-1] / close.iloc[-6] - 1) if len(close) > 6 else np.nan,
+    }
+
+
+def trend_features(close: pd.Series) -> dict:
+    """MA5 / MA10 now and one session earlier, and sessions since MA5 last crossed above MA10.
+
+    The last element of `close` is "today" (a live or checkpoint price)."""
+    close = close.reset_index(drop=True)
     ma5, ma10 = ma(close, 5), ma(close, 10)
     spread = (ma5 - ma10).to_numpy()
     cross_days_ago = None
@@ -195,25 +218,8 @@ def history_features(code: str, quote: dict) -> dict:
             break
         if spread[k] <= 0:
             break
-    # Pace-adjust today's volume when the quote is from a session still in progress.
-    st = session_status("CN")
-    qt = quote.get("time")
-    live_today = qt is not None and pd.Timestamp(qt).date() == now_bj().date() and st.phase in (
-        "morning", "lunch", "afternoon")
-    frac = max(st.fraction, 1 / 240) if live_today else 1.0
-    today_vol = float(vol.iloc[-1])
-    return {
-        "code": code,
-        "history_ok": True,
-        "ma5": float(ma5.iloc[-1]),
-        "ma10": float(ma10.iloc[-1]),
-        "ma5_prev": float(ma5.iloc[-2]),
-        "ma10_prev": float(ma10.iloc[-2]),
-        "cross_days_ago": cross_days_ago,
-        "prev_volume": float(vol.iloc[-2]),
-        "projected_volume": today_vol / frac,
-        "ret_5d": float(close.iloc[-1] / close.iloc[-6] - 1) if len(close) > 6 else np.nan,
-    }
+    return {"ma5": float(ma5.iloc[-1]), "ma10": float(ma10.iloc[-1]), "ma5_prev": float(ma5.iloc[-2]),
+            "ma10_prev": float(ma10.iloc[-2]), "cross_days_ago": cross_days_ago}
 
 
 def _stage2(cands: pd.DataFrame, p: ScreenParams, progress: Callable[[float, str], None] | None) -> pd.DataFrame:

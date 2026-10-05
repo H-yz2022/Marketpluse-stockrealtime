@@ -49,3 +49,14 @@ def test_every_page_renders_offline(sample_mode):
         at.switch_page(f"app_pages/{page.name}")
         at.run()
         assert not at.exception, f"{page.name}: {[e.value for e in at.exception]}"
+
+
+def test_front_page_replay_offline(sample_mode):
+    from stockrt import checkpoint
+
+    snap = realtime.market_snapshot("CN")
+    res = checkpoint.evaluate(snap)
+    assert set(res["frames"]) == {"14:00", "14:30"}
+    assert res["index_pct"] and res["candidates"] > 50
+    r = checkpoint.ranked(res)
+    assert not r.empty and r["rank"].tolist() == list(range(1, len(r) + 1))

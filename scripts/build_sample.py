@@ -23,13 +23,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pandas as pd  # noqa: E402
 
-from stockrt import http, realtime  # noqa: E402
+from stockrt import checkpoint, http, realtime  # noqa: E402
 from stockrt.calendar import now_bj  # noqa: E402
 from stockrt.config import BENCHMARKS, DEFAULT_WATCHLIST, INDEX_NAMES, STARTER_GROUPS  # noqa: E402
 from stockrt.etfs import ETFS  # noqa: E402
 from stockrt.sample import SAMPLE_DIR  # noqa: E402
 from stockrt.sources import eastmoney, sina, tencent  # noqa: E402
-from stockrt.symbols import is_fund, is_index, market  # noqa: E402
+from stockrt.symbols import board, is_fund, is_index, is_st, market  # noqa: E402
 
 
 def collect(fn, codes, label, workers=8):
@@ -45,11 +45,52 @@ def collect(fn, codes, label, workers=8):
     return out
 
 
+def checkpoint_minutes(snap_cn: pd.DataFrame, have: set[str], day) -> pd.DataFrame:
+    """Latest-session minutes for every stock the 14:00 / 14:30 replay may need (front page, offline)."""
+    cands = [c for c in checkpoint.prefilter(snap_cn, checkpoint.ScreenParams())["code"] if c not in have]
+
+    def one(code):
+        mday, pc, bars = tencent.minute_today(code)
+        if mday != day:
+            raise ValueError(f"minute data is for {mday}, not {day}")
+        return bars.assign(date=mday, prev_close=pc)
+
+    got = collect(one, cands, "checkpoint-candidate minutes", workers=10)
+    return pd.concat([b.assign(code=c) for c, b in got.items() if not b.empty], ignore_index=True) \
+        if got else pd.DataFrame()
+
+
+def augment_checkpoints() -> int:
+    """Add checkpoint-candidate minutes to an existing sample (same session only)."""
+    quotes = pd.read_parquet(SAMPLE_DIR / "quotes.parquet")
+    minutes = pd.read_parquet(SAMPLE_DIR / "minutes.parquet")
+    meta = json.loads((SAMPLE_DIR / "meta.json").read_text(encoding="utf-8"))
+    day = pd.Timestamp(meta["as_of"]).date()
+    snap = quotes[quotes["code"].str[:2].isin(["sh", "sz", "bj"])].copy()
+    snap["board"], snap["is_st"] = snap["code"].map(board), snap["name"].fillna("").map(is_st)
+    snap["suspended"] = (snap["volume"].fillna(0) == 0) & (snap["price"] == snap["prev_close"])
+    extra = checkpoint_minutes(snap, set(minutes["code"]), day)
+    if extra.empty:
+        print("nothing to add")
+        return 1
+    minutes = pd.concat([minutes, extra.reindex(columns=minutes.columns)], ignore_index=True)
+    minutes.to_parquet(SAMPLE_DIR / "minutes.parquet", index=False, compression="zstd")
+    meta["n_checkpoint_minutes"] = int(extra["code"].nunique())
+    (SAMPLE_DIR / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"added {meta['n_checkpoint_minutes']} stocks; minutes.parquet "
+          f"{(SAMPLE_DIR / 'minutes.parquet').stat().st_size / 1e6:.2f} MB")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--years", type=int, default=10, help="daily history for the starter universe")
     ap.add_argument("--recent-days", type=int, default=90, help="calendar days of bars for every other A-share")
+    ap.add_argument("--only-checkpoints", action="store_true",
+                    help="only add 14:00/14:30 replay minutes to the existing sample (same session)")
     args = ap.parse_args()
+    if args.only_checkpoints:
+        return augment_checkpoints()
 
     core = list(dict.fromkeys(
         DEFAULT_WATCHLIST + [c for g in STARTER_GROUPS.values() for c in g] + [e["code"] for e in ETFS]
@@ -81,6 +122,10 @@ def main() -> int:
     print("Intraday, flow, factors, fees, announcements")
     minutes = collect(tencent.minute_5day, core, "5-session minutes")
     minutes_df = pd.concat([m.assign(code=c) for c, m in minutes.items() if not m.empty], ignore_index=True)
+    day = pd.Timestamp(quotes.set_index("code")["time"].get("sh000300")).date()
+    extra = checkpoint_minutes(snap_cn, set(minutes_df["code"]), day)
+    if not extra.empty:
+        minutes_df = pd.concat([minutes_df, extra.reindex(columns=minutes_df.columns)], ignore_index=True)
     flow = sina.money_flow_rank()
     print(f"  money flow: {len(flow):,} rows")
     factors = collect(sina.factor_segments, [c for c in core if not is_index(c)], "adjustment factors")
@@ -122,7 +167,8 @@ def main() -> int:
         "| quotes.parquet | one quote per listed A-share / HK stock, ETF and index (that session's close) |\n"
         f"| daily.parquet | raw daily bars: {meta['history_years']} years for the starter universe, "
         f"~{meta['recent_sessions']} sessions for every other A-share |\n"
-        "| minutes.parquet | 1-minute series, last 5 sessions, starter universe |\n"
+        "| minutes.parquet | 1-minute series: last 5 sessions for the starter universe, plus the latest session "
+        "for every stock the 14:00 / 14:30 replay needs |\n"
         "| flow.parquet | main-fund net inflow per A-share for that session |\n"
         "| universe.parquet | every listed code and name |\n"
         "| factors.json, fees.json, announcements.parquet | adjustment factors, ETF fees, recent announcements |\n\n"

@@ -16,8 +16,8 @@ reachable from your network today.
 | Enhancers | **East Money** | Has the richest fields, but its `push2*` quote hosts reset connections or return 502/302 from outside mainland China. Used only where a fallback exists. |
 
 All requests go through `stockrt/http.py`. It provides per-thread pooled sessions, retries with
-backoff, a **per-host circuit breaker** (a failing host is paused instead of stalling every page),
-and live health stats. The optional East Money hosts are called in fast-fail mode: no retries,
+backoff, a **per-endpoint circuit breaker** (a failing endpoint is paused instead of stalling every
+page, and healthy endpoints on the same host keep working), and live health stats. The optional East Money hosts are called in fast-fail mode: no retries,
 and a 10-minute pause after the first failure.
 
 ## Endpoints
@@ -27,7 +27,7 @@ and a 10-minute pause after the first failure.
 | Data | URL | Notes |
 |---|---|---|
 | Real-time quotes | `https://qt.gtimg.cn/q=sh600519,sz000858,hk00700,...` | GBK text, one `v_<code>="f0~f1~..."` record per symbol, `~`-separated. Unknown symbols return `v_pv_none_match`. 250 symbols per call is safe. |
-| Today's minutes | `https://web.ifzq.gtimg.cn/appstock/app/minute/query?code=sh600519` | `"HHMM price cum_volume cum_amount"`. Volume and amount are **cumulative**, so take differences. Includes 15:05–15:30 after-hours prints (`session = post`). |
+| Today's minutes | `https://web.ifzq.gtimg.cn/appstock/app/minute/query?code=sh600519` | `"HHMM price cum_volume cum_amount"`. Volume and amount are **cumulative**, so take differences. Includes 15:05–15:30 after-hours prints (`session = post`). On 2026-10-05 this endpoint started returning **HTTP 501 for every symbol** while `day/query` kept working. The adapter then falls back to the latest day of `day/query`, which holds the same data. |
 | Last 5 sessions | `https://web.ifzq.gtimg.cn/appstock/app/day/query?code=hk00700` | Same row format, one block per day, with the previous close (`prec`). Works for HK too. |
 | Daily bars | `https://web.ifzq.gtimg.cn/appstock/app/newfqkline/get?param=<code>,day,<start>,<end>,2000,<fq>` | Row: `[date, open, close, high, low, volume, {events}, turnover%, amount(10k)]`. Up to **2,000 bars per call**, being the *last* 2,000 in the range, so page backwards for long histories. `fq` = `''` raw, `qfq`, `hfq`. Event dicts carry dividend text such as `10派280.242元` or `中期息0.19港元`. |
 | Minute OHLC | `https://ifzq.gtimg.cn/appstock/app/kline/mkline?param=<code>,m1,,800` | `m1/m5/m15/m30/m60`, 800 bars max. Mainland only (HK returns nothing). Note the host is `ifzq.gtimg.cn`, since `web.ifzq` returns 301 here. |
@@ -112,6 +112,32 @@ Verified against independent figures:
 | Moutai earliest adjusted close (2001) | positive | ¥4.00 (Tencent additive: negative) |
 | Bulk path (dividend text) vs Sina factors, Moutai daily returns | n/a | max difference 0.005% |
 
+## Rebuilding 14:00 / 14:30 after the fact (front page)
+
+Quote feeds show only end-of-day values after the close, so `stockrt/checkpoint.py` rebuilds each
+stock at a checkpoint from its 1-minute series and daily history:
+
+- volume ratio (量比) = (volume so far ÷ minutes elapsed) ÷ (5-session average volume ÷ 240);
+- turnover = volume so far ÷ float shares;
+- MA5 / MA10 use the prior sessions plus the checkpoint price.
+
+Checked by rebuilding 40 random stocks "at 15:00" and comparing with the real end-of-day quote:
+
+| Field | Mean error | Max error |
+|---|---|---|
+| change % | 0.002 points | 0.005 points |
+| volume ratio | 0.3% | 1.0% |
+| turnover | 0.2% | 1.1% |
+| float market cap | 0.01% | 0.03% |
+
+Minute data is fetched only for stocks that end-of-day facts can't rule out (the day's range must
+touch the 3–5% band, and end-of-day turnover must already exceed the minimum, because cumulative
+turnover only grows). That is about 240 of 5,500 stocks, or roughly 40 s for the first run; finished
+sessions are then cached. Main-fund flow at the checkpoint needs East Money's minute flow. When that
+is unreachable, the session's end-of-day flow is used and the row is marked confidence "Medium". A
+capture taken at that minute (`scripts/capture_snapshot.py` / auto-capture) replaces all of this
+with the real values.
+
 ## Fallback chain
 
 | Feature | Primary | Fallback |
@@ -120,5 +146,7 @@ Verified against independent figures:
 | Adjustment factors | Sina (cached 12 h) | stale cache, then Tencent dividend text |
 | Stock lists | Sina (cached 12 h on disk) | stale list |
 | Daily bars | Tencent, cached on disk and topped up every 60 s while trading | cached bars |
+| Today's minutes | Tencent `minute/query` | latest day of Tencent `day/query` |
+| Index move at a checkpoint | CSI 300 minute data | rule reported as unchecked |
 | ETF fees | East Money (cached 7 days) | stale cache, or blank |
 | Market holidays | not hard-coded | detected when the CSI 300 hasn't printed today |

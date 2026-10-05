@@ -65,5 +65,6 @@
   "sh000001",
   "sz399001"
  ],
- "sources": "Tencent quotes/minutes/daily, Sina universe/factors/money flow, East Money fees/announcements"
+ "sources": "Tencent quotes/minutes/daily, Sina universe/factors/money flow, East Money fees/announcements",
+ "n_checkpoint_minutes": 240
 }

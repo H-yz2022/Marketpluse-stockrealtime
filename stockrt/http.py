@@ -5,9 +5,9 @@ reset connections or 502 without warning (East Money especially). Every
 request goes through `get()` so that:
 
 * transient failures are retried with backoff,
-* a host that keeps failing is skipped for a cool-down instead of stalling
-  every page load (callers then fall back to another provider),
-* the Data sources page can show live health for each host.
+* an endpoint that keeps failing is skipped for a cool-down instead of stalling
+  every page load (callers then fall back to another provider or endpoint),
+* the Data sources page can show live health for each endpoint.
 """
 
 from __future__ import annotations
@@ -103,7 +103,10 @@ def get(url: str, *, params: dict | None = None, headers: dict | None = None,
 
     if sample.is_sample():
         raise SourceUnavailable("network is off: the app is using the built-in sample dataset")
-    host = urlparse(url).hostname or url
+    # Health and the breaker are tracked per endpoint (host + path): one dead endpoint
+    # must not pause healthy neighbours on the same host.
+    parts = urlparse(url)
+    host = f"{parts.hostname or url}{parts.path}"
     h = _health_for(host)
     now = time.time()
     if h.paused_until > now:
