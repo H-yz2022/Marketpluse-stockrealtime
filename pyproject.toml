@@ -1,0 +1,20 @@
+[project]
+name = "stockrealtime"
+version = "0.1.0"
+description = "Real-time China A-share & Hong Kong market data platform (prototype)"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+# Page scripts and prompt templates hold long user-facing strings and table rows.
+"app_pages/*" = ["E501"]
+"stockrt/prompts.py" = ["E501"]
+"streamlit_app.py" = ["E501"]

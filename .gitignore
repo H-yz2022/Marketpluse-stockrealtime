@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Environment / secrets
+.env
+.streamlit/secrets.toml
+
+# Data (generated locally: cache, snapshots, watchlist, saved prompts)
+data/
+
+# Local tooling / OS / editor
+.claude/
+.DS_Store
+.idea/
+.vscode/
+*.log

@@ -1,0 +1,11 @@
+# Runtime
+streamlit>=1.57
+pandas>=2.0
+numpy>=1.26
+requests>=2.31
+altair>=5.4
+pyarrow>=14      # parquet cache for daily bars
+
+# Tests / lint
+pytest>=8.0
+ruff>=0.4
