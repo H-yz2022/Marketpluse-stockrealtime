@@ -32,7 +32,7 @@ from datetime import date, time, timedelta
 import numpy as np
 import pandas as pd
 
-from . import http, realtime, storage
+from . import http, realtime, sample, storage
 from .calendar import elapsed_at, now_bj, total_minutes
 from .config import SNAPSHOT_DIR
 from .screener import BOARDS, ScreenParams, trend_features
@@ -294,6 +294,10 @@ def evaluate(snap: pd.DataFrame, p: ScreenParams | None = None, cps: tuple[str, 
     """Screen the latest session at each checkpoint. Returns a dict with per-checkpoint frames,
     the index move at each checkpoint, candidate counts and data-quality notes."""
     p = p or ScreenParams()
+    if sample.is_sample():
+        saved = sample.picks()
+        if saved and saved["params"] == p.to_dict() and tuple(saved["frames"]) == cps:
+            return saved
     day = session_day(snap)
     reached = tuple(c for c in cps if checkpoint_reached(day, c))
     pending = [c for c in cps if c not in reached]
@@ -306,9 +310,9 @@ def evaluate(snap: pd.DataFrame, p: ScreenParams | None = None, cps: tuple[str, 
     out["candidates"] = len(cands)
     quotes = {r["code"]: r for r in cands.to_dict("records")}
     codes = list(quotes)
-    session_over = day < now_bj().date() or now_bj().time() >= time(15, 0)
+    # A checkpoint's picture is fixed once it has passed, so results are cached as soon as they exist.
     key = _cache_key(day, p, reached)
-    cached = storage.load_frame("checkpoints", key) if session_over else None
+    cached = storage.load_frame("checkpoints", key)
 
     if cached is not None:
         rows = cached
@@ -332,7 +336,7 @@ def evaluate(snap: pd.DataFrame, p: ScreenParams | None = None, cps: tuple[str, 
         rows = pd.DataFrame(recs)
         if not rows.empty:
             rows = _attach_flow(rows, day)
-        if session_over and not rows.empty:
+        if not rows.empty:
             storage.save_frame("checkpoints", key, rows)
 
     if rows.empty:

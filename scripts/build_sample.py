@@ -60,6 +60,27 @@ def checkpoint_minutes(snap_cn: pd.DataFrame, have: set[str], day) -> pd.DataFra
         if got else pd.DataFrame()
 
 
+def save_picks() -> None:
+    """Precompute the front page (14:00 / 14:30 replay) from the sample itself, so it opens instantly."""
+    from stockrt import sample
+
+    previous = sample._mode
+    sample.set_mode("sample")
+    try:
+        (SAMPLE_DIR / "picks.json").unlink(missing_ok=True)  # never reuse an old result
+        snap = realtime.market_snapshot("CN")
+        res = checkpoint.evaluate(snap)
+        rows = pd.concat([f.assign(checkpoint=c) for c, f in res["frames"].items()], ignore_index=True)
+        rows.to_parquet(SAMPLE_DIR / "picks.parquet", index=False, compression="zstd")
+        (SAMPLE_DIR / "picks.json").write_text(json.dumps({
+            "day": res["day"].isoformat(), "checkpoints": list(res["frames"]), "index_pct": res["index_pct"],
+            "notes": res["notes"], "candidates": res["candidates"],
+            "params": checkpoint.ScreenParams().to_dict()}, ensure_ascii=False, indent=1), encoding="utf-8")
+        print(f"  front page precomputed: {len(rows)} rows for {res['day']} at {', '.join(res['frames'])}")
+    finally:
+        sample.set_mode(previous)
+
+
 def augment_checkpoints() -> int:
     """Add checkpoint-candidate minutes to an existing sample (same session only)."""
     quotes = pd.read_parquet(SAMPLE_DIR / "quotes.parquet")
@@ -79,6 +100,7 @@ def augment_checkpoints() -> int:
     (SAMPLE_DIR / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"added {meta['n_checkpoint_minutes']} stocks; minutes.parquet "
           f"{(SAMPLE_DIR / 'minutes.parquet').stat().st_size / 1e6:.2f} MB")
+    save_picks()
     return 0
 
 
@@ -88,9 +110,13 @@ def main() -> int:
     ap.add_argument("--recent-days", type=int, default=90, help="calendar days of bars for every other A-share")
     ap.add_argument("--only-checkpoints", action="store_true",
                     help="only add 14:00/14:30 replay minutes to the existing sample (same session)")
+    ap.add_argument("--only-picks", action="store_true", help="only recompute the saved front-page result")
     args = ap.parse_args()
     if args.only_checkpoints:
         return augment_checkpoints()
+    if args.only_picks:
+        save_picks()
+        return 0
 
     core = list(dict.fromkeys(
         DEFAULT_WATCHLIST + [c for g in STARTER_GROUPS.values() for c in g] + [e["code"] for e in ETFS]
@@ -171,12 +197,14 @@ def main() -> int:
         "for every stock the 14:00 / 14:30 replay needs |\n"
         "| flow.parquet | main-fund net inflow per A-share for that session |\n"
         "| universe.parquet | every listed code and name |\n"
-        "| factors.json, fees.json, announcements.parquet | adjustment factors, ETF fees, recent announcements |\n\n"
+        "| factors.json, fees.json, announcements.parquet | adjustment factors, ETF fees, recent announcements |\n"
+        "| picks.parquet, picks.json | the front page's 14:00 / 14:30 result, precomputed |\n\n"
         "Prices and flows come from Tencent, Sina and East Money public web endpoints and remain theirs; this "
         "small sample is included for demonstration and testing only.\n", encoding="utf-8")
 
     shutil.rmtree(SAMPLE_DIR, ignore_errors=True)
     tmp.rename(SAMPLE_DIR)
+    save_picks()
     total = sum(f.stat().st_size for f in SAMPLE_DIR.iterdir()) / 1e6
     for f in sorted(SAMPLE_DIR.iterdir()):
         print(f"  {f.name:24} {f.stat().st_size / 1e6:6.2f} MB")

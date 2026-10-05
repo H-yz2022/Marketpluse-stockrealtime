@@ -31,7 +31,7 @@ def test_symbol_helpers():
 
 
 @pytest.mark.parametrize("hhmm,phase,elapsed", [
-    ("09:00", "closed", 0), ("09:20", "pre-open", 0), ("10:30", "morning", 60), ("12:00", "lunch", 120),
+    ("09:00", "before open", 0), ("09:20", "pre-open", 0), ("10:30", "morning", 60), ("12:00", "lunch", 120),
     ("14:00", "afternoon", 180), ("15:05", "closed", 240),
 ])
 def test_cn_sessions(hhmm, phase, elapsed):
@@ -102,3 +102,28 @@ def test_sentiment_components():
     s = sentiment.stock_sentiment(q, {"main_net_ratio": 10.0}, 0.5, ["关于股份回购的公告", "关于股东减持的公告"])
     assert set(s["components"]) == {"Order flow", "Main funds", "Relative strength", "Close location", "Announcements"}
     assert s["score"] > 0 and s["label"] in ("Bullish", "Mildly bullish")
+
+
+def bj(s):
+    return datetime.fromisoformat(s).replace(tzinfo=BJ)
+
+
+def test_official_calendar_holidays():
+    # Golden Week 2026: mainland shut 1-7 Oct, reopens Thu 8 Oct; HK trades on 5 Oct.
+    cn = calendar.status("CN", bj("2026-10-05 13:50"))
+    assert cn.phase == "holiday" and not cn.is_trading
+    assert str(cn.next_session) == "2026-10-08" and "reopens Thu 08 Oct" in cn.label
+    hk = calendar.status("HK", bj("2026-10-05 13:50"))
+    assert hk.phase == "afternoon" and hk.is_trading
+    # HK public holiday the mainland trades through.
+    assert calendar.status("HK", bj("2026-10-19 10:00")).phase == "holiday"
+    assert calendar.status("CN", bj("2026-10-19 10:00")).is_trading
+
+
+def test_hk_half_day_and_next_session():
+    eve = calendar.status("HK", bj("2026-12-24 11:00"))
+    assert eve.half_day and eve.is_trading
+    after = calendar.status("HK", bj("2026-12-24 13:30"))
+    assert after.phase == "closed" and str(after.next_session) == "2026-12-28"
+    friday = calendar.status("CN", bj("2026-10-09 16:00"))
+    assert "next session Mon 12 Oct" in friday.label

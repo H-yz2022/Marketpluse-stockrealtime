@@ -12,7 +12,7 @@ the live data and exact column definitions, for use with whichever assistant you
 
 | Page | What it does |
 |---|---|
-| **Picks at 14:00 / 14:30** *(front page)* | The late-session query, answered: non-ST, +3–5%, volume ratio > 1, turnover 3–8%, MA5 crossing above MA10, rising MAs, volume and price up, main funds in, beating the CSI 300, float cap ¥5–20B. It replays the latest session **as it stood at 14:00 and 14:30** (rebuilt from minute data, or from a real capture when one exists) and gives one ranked list. **Tier** comes first, for reliability (A = every rule at both times), then a 0–100 **signal score** (trend, volume, main funds, intraday pattern, relative strength, liquidity). A confidence flag and a hindsight "→ close" column sit alongside. |
+| **尾盘选股 · Picks at 14:00 / 14:30** *(front page)* | The late-session query, answered: non-ST, +3–5%, volume ratio > 1, turnover 3–8%, MA5 crossing above MA10, rising MAs, volume and price up, main funds in, beating the CSI 300, float cap ¥5–20B. It replays the latest session **as it stood at 14:00 and 14:30** (rebuilt from minute data, or from a real capture when one exists) and gives one ranked list. **Tier** comes first, for reliability (A = every rule at both times), then a 0–100 **signal score** (trend, volume, main funds, intraday pattern, relative strength, liquidity). A confidence flag and a hindsight "→ close" column sit alongside. |
 | **Live dashboard** | One stock: latest price, daily / 1-month / period return, volatility, max drawdown, P/E, rule-based sentiment. Intraday chart with VWAP and the lunch break removed, session statistics (morning vs afternoon, VWAP, volume ratio, turnover, main-fund flow, active buying), daily chart, and announcements with links to the page and PDF. Auto-refreshes every 30 s while trading. |
 | **Intraday at 14:00** | Watchlist statistics and an overlay chart up to a cut-off (11:30 / 13:30 / 14:00 / 14:30 / close). One-click **capture of the whole market** at that moment, plus auto-capture at chosen Beijing times while the app runs. |
 | **Screener & query** | Rule-based screen of all ~5,500 A-shares. The default preset is the late-session momentum screen (non-ST, +3–5%, volume ratio > 1, turnover 3–8%, MA5 crossing above MA10, rising MAs, volume and price up, main-fund inflow, beating the CSI 300, float cap ¥5–20B). Shows a funnel, near misses and market mood, and has a **SQL tab** for querying the live snapshot. |
@@ -44,7 +44,8 @@ The app opens at http://localhost:8501 with **live data**. The first load downlo
 - 10 years of daily bars for the 57 starter symbols, ETFs and indices, and ~60 sessions for every other A-share;
 - 5 sessions of 1-minute data, plus adjustment factors, ETF fees and announcements.
 
-In sample mode every page works with **no network at all**. The site opens instantly, scrapes
+In sample mode every page works with **no network at all**, and the front page's 14:00 / 14:30
+result is stored precomputed (`picks.parquet`), so it opens instantly. The site opens instantly, scrapes
 nothing and stays small in memory, which suits a free hosting tier. Turn on **Live data** in the
 sidebar for real-time prices, or start the app in sample mode:
 
@@ -85,9 +86,11 @@ python scripts/capture_snapshot.py
 ```
 
 `capture_snapshot.py` saves every A-share quote (with main-fund flow), every HK quote and the
-watchlist's 1-minute bars to `data/snapshots/<date>/`. It skips weekends and holidays unless
-you pass `--force`. To run it at 14:00 Beijing on weekdays from New York (02:00 EDT, 01:00 EST),
-use Windows Task Scheduler; the exact command is on the *Data downloads → Bulk & scheduled* tab.
+watchlist's 1-minute bars to `data/snapshots/<date>/`. From 14:00 onwards it also pre-computes the
+front page from those real values, so the site opens instantly. It skips weekends and holidays
+(official calendars) unless you pass `--force`. Schedule it for **14:00 and 14:30 Beijing** on
+weekdays (from New York that is 02:00 / 02:30 EDT, or 01:00 / 01:30 EST) with Windows Task
+Scheduler. The exact commands are on the *Data downloads → Bulk & scheduled* tab.
 
 ## Tests
 
@@ -134,8 +137,9 @@ docs/DATA_SOURCES.md  endpoint map, quirks, verification
 
 ## Known limits (prototype)
 
-- **Public holidays** aren't hard-coded. Pages show the last session; scheduled capture detects
-  holidays from the index quote.
+- **Market hours** come from the official SZSE calendar and the HK government holiday list (bundled
+  copy for offline use). Unscheduled closures, such as a typhoon before the open, show up only in
+  the data.
 - **HK quotes** from these free sources may be delayed (often 15 minutes) for non-subscribers,
   and HK money flow depends on East Money being reachable.
 - **HK ETF expense ratios and HK index P/E** have no free real-time source. Fill expense ratios in

@@ -87,6 +87,21 @@ All Sina calls need `Referer: https://finance.sina.com.cn`.
 
 Symbol ids ("secid"): `1.` Shanghai, `0.` Shenzhen/Beijing, `116.` HK stocks, `100.` HK indices.
 
+### Trading calendars
+
+| Market | Source | Notes |
+|---|---|---|
+| Mainland (SSE, SZSE, BSE) | `https://www.szse.cn/api/report/exchange/onepersistenthour/monthList?month=2026-10` | The Shenzhen Stock Exchange's own calendar. `jybz` = 1 for a trading day, 0 for closed. All mainland exchanges share it. Next year's months appear once published (usually December). |
+| Hong Kong | `https://www.1823.gov.hk/common/ical/en.ics` | HK government public holidays (iCalendar), on which HKEX closes. HKEX trades **morning only** on Christmas Eve, New Year's Eve and Lunar New Year's Eve. |
+
+The sidebar, auto-refresh and volume pacing all use these, so a holiday reads "Closed · National Day
+holiday · reopens Thu 08 Oct" rather than being guessed from the clock. A copy for the current and
+next year ships with the app (`stockrt/trading_calendar.json`), so it also works offline and in
+sample mode. Rebuild the copy with `python -c "from stockrt import tradingdays; tradingdays.refresh_bundle((2026, 2027))"`.
+
+HK quotes from these free feeds run about **15 minutes behind** during trading (measured: HSI quote
+at 13:33 at 13:48). The sidebar shows the lag whenever it is 5 minutes or more.
+
 ## Price adjustment: why the app computes its own
 
 The providers' forward-adjusted (前复权) series are **additive**: they subtract dividends as fixed
@@ -149,4 +164,4 @@ with the real values.
 | Today's minutes | Tencent `minute/query` | latest day of Tencent `day/query` |
 | Index move at a checkpoint | CSI 300 minute data | rule reported as unchecked |
 | ETF fees | East Money (cached 7 days) | stale cache, or blank |
-| Market holidays | not hard-coded | detected when the CSI 300 hasn't printed today |
+| Trading days / holidays | official calendars (below), refreshed daily | copy bundled in `stockrt/trading_calendar.json` |

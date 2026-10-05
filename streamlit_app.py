@@ -4,7 +4,6 @@ Run:  streamlit run streamlit_app.py
 """
 
 import os
-from datetime import time
 
 import streamlit as st
 
@@ -14,7 +13,7 @@ from stockrt.config import DEFAULT_RISK_FREE
 from ui import cache
 
 st.set_page_config(
-    page_title="China & HK markets",
+    page_title="尾盘选股 · China & HK markets",
     page_icon=":material/candlestick_chart:",
     layout="wide",
 )
@@ -28,7 +27,7 @@ if "watchlist" not in st.session_state:
 page = st.navigation(
     {
         "": [
-            st.Page("app_pages/picks.py", title="Picks at 14:00 / 14:30", icon=":material/leaderboard:",
+            st.Page("app_pages/picks.py", title="尾盘选股 · Picks at 14:00 / 14:30", icon=":material/leaderboard:",
                     default=True),
         ],
         "Markets": [
@@ -48,13 +47,15 @@ page = st.navigation(
 )
 
 
-def last_print_dates() -> dict[str, object]:
-    """Date of each market's latest index quote - a holiday shows up as no print today."""
+def quote_delays() -> dict[str, int]:
+    """Minutes the latest index quote lags the clock (free HK quotes run ~15 min behind)."""
     if sample.is_sample():
         return {}
     try:
         q = cache.quotes(("sh000300", "hkHSI")).set_index("code")["time"]
-        return {"CN": q["sh000300"].date(), "HK": q["hkHSI"].date()}
+        now = now_bj()
+        return {"CN": int((now - q["sh000300"]).total_seconds() // 60),
+                "HK": int((now - q["hkHSI"]).total_seconds() // 60)}
     except Exception:  # noqa: BLE001 - the clock still works without it
         return {}
 
@@ -63,16 +64,22 @@ def last_print_dates() -> dict[str, object]:
 def market_clock() -> None:
     now = now_bj()
     st.markdown(f"**{now:%a %d %b %Y · %H:%M}** Beijing / HK time")
-    last = last_print_dates()
+    delays = None
     for mkt, label in (("CN", "A-shares"), ("HK", "Hong Kong")):
         s = status(mkt, now)
-        text = s.label
-        color = "green" if s.is_trading else ("orange" if s.phase in ("lunch", "pre-open", "closing auction") else "gray")
-        in_hours = s.phase in ("morning", "lunch", "afternoon", "closing auction") and now.time() >= time(9, 32)
-        if in_hours and last.get(mkt) and last[mkt] < now.date():
-            text, color = "Closed today (holiday)", "gray"
-        st.markdown(f":{color}-badge[{label}] {text}")
-    st.caption("When a market is shut, pages show its last session.")
+        if s.is_trading:
+            color = "green"
+        elif s.phase in ("lunch", "pre-open", "before open", "closing auction"):
+            color = "orange"
+        else:
+            color = "gray"
+        st.markdown(f":{color}-badge[{label}] {s.label}")
+        if s.is_trading:
+            delays = quote_delays() if delays is None else delays
+            lag = delays.get(mkt, 0)
+            if lag >= 5:
+                st.caption(f":material/schedule: Quotes about {lag} min behind (free {label} feed)")
+    st.caption("Open / closed from the official SZSE trading calendar and HKEX (HK government) holidays.")
 
 
 def switch_data_mode() -> None:
@@ -96,5 +103,6 @@ st.session_state.rf = st.session_state.rf_pct / 100
 if sample.is_sample():
     with st.container(horizontal=True, vertical_alignment="center"):
         st.badge("Sample data", icon=":material/inventory_2:", color="orange")
-        st.caption(sample.describe() + " Turn on **Live data** in the sidebar for real-time prices.")
+        st.caption(f"Saved session of {sample.meta().get('as_of', '')} - nothing is fetched. "
+                   "Turn on **Live data** in the sidebar for real-time prices.")
 page.run()

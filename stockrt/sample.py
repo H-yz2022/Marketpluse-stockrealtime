@@ -213,6 +213,18 @@ def _announcements(code: str, n: int = 30) -> pd.DataFrame:
     return a[a["code"] == code].drop(columns=["code"]).head(n).reset_index(drop=True)
 
 
+def picks() -> dict | None:
+    """Precomputed front-page result (14:00 / 14:30 replay) saved with the sample, if present."""
+    f = SAMPLE_DIR / "picks.json"
+    if not f.exists():
+        return None
+    meta = json.loads(f.read_text(encoding="utf-8"))
+    rows = _table("picks")
+    frames = {cp: rows[rows["checkpoint"] == cp].reset_index(drop=True) for cp in meta["checkpoints"]}
+    return {"day": date.fromisoformat(meta["day"]), "frames": frames, "index_pct": meta["index_pct"],
+            "pending": [], "notes": meta["notes"], "candidates": meta["candidates"], "params": meta["params"]}
+
+
 def describe() -> str:
     m = meta()
     if not m:

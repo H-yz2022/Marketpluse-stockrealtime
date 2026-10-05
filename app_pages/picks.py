@@ -3,7 +3,7 @@
 import pandas as pd
 import streamlit as st
 
-from stockrt import checkpoint, prompts, screener, watchlist
+from stockrt import checkpoint, prompts, sample, screener, watchlist
 from stockrt.export import stamp, to_csv_bytes
 from ui import cache
 from ui.fmt import pct, style_signed
@@ -31,7 +31,7 @@ def results_memo() -> dict:
     return {}
 
 
-st.header("Late-session momentum picks", anchor=False)
+st.header("尾盘选股 · Late-session picks", anchor=False)
 with st.container(border=True):
     with st.container(horizontal=True, vertical_alignment="center"):
         st.markdown("**The query**")
@@ -49,11 +49,13 @@ reached = tuple(c for c in checkpoint.CHECKPOINTS if checkpoint.checkpoint_reach
 key = (str(day), reached, st.session_state.get("live_data", True))
 memo = results_memo()
 
-with st.container(horizontal=True, vertical_alignment="center"):
-    refresh = st.button("Recompute", icon=":material/refresh:", help="Rebuild from the latest data.")
-    if st.button("Run the screen on live data now", icon=":material/filter_alt:",
-                 help="The Screener page evaluates the market as it is right now."):
-        st.switch_page("app_pages/screener.py")
+refresh = False
+if not sample.is_sample():  # recomputing or screening live makes no sense on the saved sample
+    with st.container(horizontal=True, vertical_alignment="center"):
+        refresh = st.button("Recompute", icon=":material/refresh:", help="Rebuild from the latest data.")
+        if st.button("Run the screen on live data now", icon=":material/filter_alt:",
+                     help="The Screener page evaluates the market as it is right now."):
+            st.switch_page("app_pages/screener.py")
 
 if key not in memo or refresh:
     bar = st.progress(0.0, text="Finding candidates…")
@@ -81,6 +83,10 @@ if not frames:
     st.stop()
 
 cps = [c for c in checkpoint.CHECKPOINTS if c in frames]
+if sample.is_sample():
+    st.info(f"**Saved example: {pd.Timestamp(day):%A %d %B %Y}.** The stocks that matched the query as the market "
+            "stood at 14:00 and 14:30 that day, ranked. Turn on **Live data** in the sidebar to run it on the "
+            "latest session.", icon=":material/inventory_2:")
 with st.container(horizontal=True):
     st.metric("Session", pd.Timestamp(day).strftime("%a %d %b %Y"), border=True)
     for c in cps:

@@ -10,5 +10,6 @@ Market data as of 2026-09-30 (A-shares) / 2026-10-02 (HK), built 2026-10-04 with
 | flow.parquet | main-fund net inflow per A-share for that session |
 | universe.parquet | every listed code and name |
 | factors.json, fees.json, announcements.parquet | adjustment factors, ETF fees, recent announcements |
+| picks.parquet, picks.json | the front page's 14:00 / 14:30 result, precomputed |
 
 Prices and flows come from Tencent, Sina and East Money public web endpoints and remain theirs; this small sample is included for demonstration and testing only.

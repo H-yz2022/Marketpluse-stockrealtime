@@ -247,10 +247,12 @@ use the scripts in `scripts/` (they share this app's data layer and cache).
             "python scripts/download_daily.py --all-cn --start 2026-01-01 --out data/exports", language="bash")
     st.markdown("**Point-in-time capture** (whole market + watchlist minute bars) - run it once now:")
     st.code("python scripts/capture_snapshot.py", language="bash")
-    st.markdown("**Schedule it for 14:00 Beijing on weekdays** with Windows Task Scheduler. 14:00 Beijing is "
-                "02:00 New York time during daylight saving (EDT) and 01:00 in winter (EST); this example "
-                "uses EDT:")
+    st.markdown("**Schedule it for 14:00 and 14:30 Beijing on weekdays** with Windows Task Scheduler - the front "
+                "page then uses the real values at those minutes and opens instantly. 14:00 / 14:30 Beijing is "
+                "02:00 / 02:30 New York time during daylight saving (EDT) and 01:00 / 01:30 in winter (EST); "
+                "these commands use EDT. Holidays are skipped automatically.")
     script = Path(__file__).resolve().parent.parent / "scripts" / "capture_snapshot.py"
-    st.code(f'schtasks /Create /TN "StockRT 1400 capture" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 02:00 '
-            f'/TR "\\"{sys.executable}\\" \\"{script}\\""', language="bash")
+    for name, at in (("1400", "02:00"), ("1430", "02:30")):
+        st.code(f'schtasks /Create /TN "StockRT {name} capture" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST {at} '
+                f'/TR "\\"{sys.executable}\\" \\"{script}\\""', language="bash")
     st.caption("Files land in data/snapshots/<date>/ and appear under Saved captures.")

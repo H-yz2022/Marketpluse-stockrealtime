@@ -64,6 +64,15 @@ def capture(label: str | None = None, include_flow: bool = True, include_hk: boo
         except Exception as e:  # noqa: BLE001
             log.warning("HK snapshot failed: %s", e)
 
+    if now.hour >= 14:
+        # Pre-compute the front page from the capture(s) just written, so it opens instantly.
+        try:
+            from . import checkpoint
+
+            checkpoint.evaluate(cn.drop(columns=["captured_at"]))
+        except Exception as e:  # noqa: BLE001 - the capture itself already succeeded
+            log.warning("front-page precompute failed: %s", e)
+
     codes = watchlist.load()
     names = dict(zip(cn["code"], cn["name"]))
     _, minutes = intraday.watchlist_table(codes, names, None)
