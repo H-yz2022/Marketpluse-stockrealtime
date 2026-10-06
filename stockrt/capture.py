@@ -91,11 +91,15 @@ def list_snapshots() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# The 15:00 capture runs at 15:02 so the closing-auction prints are in, but is saved as "1500".
+RUN_AT = {"15:00": "15:02"}
+
+
 class AutoCapture:
     """Background thread that captures at fixed Beijing times on weekdays while the app runs."""
 
     def __init__(self) -> None:
-        self.times: set[str] = {"14:00"}
+        self.times: set[str] = {"14:00", "14:30", "15:00"}
         self.enabled = False
         self.last_runs: dict[str, str] = {}
         self.last_error: str | None = None
@@ -109,10 +113,12 @@ class AutoCapture:
                     now = now_bj()
                     hhmm = now.strftime("%H:%M")
                     key = now.strftime("%Y-%m-%d ") + hhmm
-                    if now.weekday() < 5 and hhmm in self.times and key not in self.last_runs.values():
-                        self.last_runs[hhmm] = key
+                    due = {RUN_AT.get(t, t): t for t in self.times}  # clock time -> checkpoint
+                    if now.weekday() < 5 and hhmm in due and key not in self.last_runs.values():
+                        cp = due[hhmm]
+                        self.last_runs[cp] = key
                         if traded_today()[0]:
-                            files = capture(label=hhmm.replace(":", ""))
+                            files = capture(label=cp.replace(":", ""))
                             log.info("auto-capture %s wrote %s", key, files)
                         else:
                             log.info("auto-capture %s skipped: market closed today", key)

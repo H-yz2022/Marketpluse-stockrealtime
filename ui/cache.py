@@ -17,12 +17,12 @@ from stockrt.calendar import now_bj
 from stockrt.sources import eastmoney
 
 
-@st.cache_data(ttl="15s", max_entries=100, show_spinner=False)
+@st.cache_data(ttl="15s", max_entries=40, show_spinner=False)
 def quotes(codes: tuple[str, ...]) -> pd.DataFrame:
     return realtime.quotes(list(codes))
 
 
-@st.cache_data(ttl="1m", max_entries=4, show_spinner=False)
+@st.cache_data(ttl="1m", max_entries=2, show_spinner=False)
 def snapshot(mkt: str) -> tuple[pd.DataFrame, str]:
     df = realtime.market_snapshot(mkt)
     return df, now_bj().strftime("%Y-%m-%d %H:%M:%S")
@@ -45,32 +45,32 @@ def name_map() -> dict[str, str]:
     return names
 
 
-@st.cache_data(ttl="30s", max_entries=48, show_spinner=False)
+@st.cache_data(ttl="30s", max_entries=24, show_spinner=False)
 def minute_today(code: str):
     return intraday.today(code)
 
 
-@st.cache_data(ttl="2m", max_entries=24, show_spinner=False)
+@st.cache_data(ttl="2m", max_entries=12, show_spinner=False)
 def minute_5day(code: str) -> pd.DataFrame:
     return intraday.five_days(code)
 
 
-@st.cache_data(ttl="1m", max_entries=64, show_spinner=False)
+@st.cache_data(ttl="1m", max_entries=32, show_spinner=False)
 def daily(code: str) -> tuple[pd.DataFrame, str]:
     return history.adjusted_daily(code)
 
 
-@st.cache_data(ttl="2m", max_entries=16, show_spinner=False)
+@st.cache_data(ttl="2m", max_entries=8, show_spinner=False)
 def panel(codes: tuple[str, ...]) -> pd.DataFrame:
     return history.close_panel(list(codes))
 
 
-@st.cache_data(ttl="1m", max_entries=100, show_spinner=False)
+@st.cache_data(ttl="1m", max_entries=40, show_spinner=False)
 def main_flow(codes: tuple[str, ...]) -> pd.DataFrame:
     return realtime.main_flow(list(codes))
 
 
-@st.cache_data(ttl="15m", max_entries=100, show_spinner=False)
+@st.cache_data(ttl="15m", max_entries=40, show_spinner=False)
 def announcements(code: str) -> pd.DataFrame:
     try:
         return eastmoney.announcements(code, 30)
@@ -78,12 +78,12 @@ def announcements(code: str) -> pd.DataFrame:
         return pd.DataFrame(columns=["date", "title", "category", "url", "pdf"])
 
 
-@st.cache_data(ttl="2m", max_entries=8, show_spinner=False)
+@st.cache_data(ttl="2m", max_entries=4, show_spinner=False)
 def intraday_table(codes: tuple[str, ...], cut_time: str | None) -> tuple[pd.DataFrame, pd.DataFrame]:
     return intraday.watchlist_table(list(codes), name_map(), cut_time)
 
 
-@st.cache_data(ttl="10m", max_entries=16, show_spinner=False)
+@st.cache_data(ttl="10m", max_entries=4, show_spinner=False)
 def etf_scorecard(period: str, rf: float) -> pd.DataFrame:
     return etfs.scorecard(period, rf)
 

@@ -26,6 +26,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 from collections.abc import Callable
 from datetime import date, time, timedelta
 
@@ -40,7 +41,9 @@ from .sources import eastmoney, tencent
 
 log = logging.getLogger(__name__)
 
-CHECKPOINTS = ("14:00", "14:30")
+CHECKPOINTS = ("14:00", "14:30", "15:00")
+CLOSE = "15:00"
+GRACE = timedelta(minutes=1)  # let the minute's bar (and the 15:00 closing auction) print
 INDEX = "sh000300"
 
 
@@ -76,7 +79,61 @@ def session_day(snap: pd.DataFrame) -> date:
 
 def checkpoint_reached(day: date, hhmm: str) -> bool:
     now = now_bj()
-    return day < now.date() or now.time() >= _hhmm(hhmm)
+    if day < now.date():
+        return True
+    return (now - GRACE).time() >= _hhmm(hhmm)
+
+
+def latest_session_day(mkt: str = "CN") -> date:
+    """The session the front page should show, from the official calendar (no network):
+    today once the market has opened on a trading day, otherwise the previous trading day."""
+    from . import tradingdays
+
+    now = now_bj()
+    today = now.date()
+    if tradingdays.is_trading_day(mkt, today) is not False and today.weekday() < 5 and \
+            now.time() >= time(9, 30):
+        return today
+    return tradingdays.previous_trading_day(mkt, today) or today - timedelta(days=1)
+
+
+def _until(hhmm: str) -> str:
+    now = now_bj()
+    target = now.replace(hour=int(hhmm[:2]), minute=int(hhmm[3:]), second=0, microsecond=0) + GRACE
+    mins = max(math.ceil((target - now).total_seconds() / 60), 1)
+    h, m = divmod(mins, 60)
+    return f"{h} h {m} min" if h else f"{m} min"
+
+
+def plan(day: date) -> list[dict]:
+    """Each checkpoint for `day`: shown, or not yet - and why, in plain words."""
+    out = []
+    for cp in CHECKPOINTS:
+        if checkpoint_reached(day, cp):
+            out.append({"checkpoint": cp, "ready": True, "reason": ""})
+        elif cp == CLOSE:
+            out.append({"checkpoint": cp, "ready": False,
+                        "reason": f"Not yet - the market closes at 15:00 Beijing (in {_until(cp)})."})
+        else:
+            out.append({"checkpoint": cp, "ready": False,
+                        "reason": f"Not yet - comes at {cp} Beijing (in {_until(cp)})."})
+    return out
+
+
+def session_note(day: date) -> str:
+    """Why the page shows `day` rather than today, when they differ."""
+    from .calendar import status
+
+    today = now_bj().date()
+    if day == today:
+        return ""
+    s = status("CN")
+    when = pd.Timestamp(day).strftime("%a %d %b")
+    if s.phase in ("holiday", "weekend"):
+        return f"A-shares are {s.label[0].lower() + s.label[1:]}. Showing the latest session, {when}."
+    if s.phase in ("before open", "pre-open"):
+        return f"Today's session hasn't started yet (opens 09:30 Beijing). Showing the latest session, {when}."
+    return f"Showing the latest session, {when}."
 
 
 # --------------------------------------------------------------------------- candidate pre-filter
@@ -289,8 +346,43 @@ def _cache_key(day: date, p: ScreenParams, cps: tuple[str, ...]) -> str:
     return f"{day.isoformat()}_{'-'.join(c.replace(':', '') for c in cps)}_{h}"
 
 
+def _result_key(day: date, p: ScreenParams, reached: tuple[str, ...]) -> str:
+    return "result_" + _cache_key(day, p, reached)
+
+
+def save_result(res: dict, p: ScreenParams) -> None:
+    if not res["frames"]:
+        return
+    key = _result_key(res["day"], p, tuple(res["frames"]))
+    rows = pd.concat([f.assign(checkpoint=c) for c, f in res["frames"].items()], ignore_index=True)
+    storage.save_frame("checkpoints", key, rows)
+    storage.save_json("checkpoints", key, {"day": res["day"].isoformat(), "checkpoints": list(res["frames"]),
+                                           "index_pct": res["index_pct"], "notes": res["notes"],
+                                           "candidates": res["candidates"]})
+
+
+def load_result(day: date, p: ScreenParams | None = None) -> dict | None:
+    """A finished result for `day` at every checkpoint reached so far, without touching the market:
+    the disk cache, else the bundled sample when it covers that same session."""
+    p = p or ScreenParams()
+    reached = tuple(c for c in CHECKPOINTS if checkpoint_reached(day, c))
+    if not reached:
+        return None
+    key = _result_key(day, p, reached)
+    meta = storage.load_json("checkpoints", key)
+    rows = storage.load_frame("checkpoints", key)
+    if meta and rows is not None:
+        frames = {c: rows[rows["checkpoint"] == c].reset_index(drop=True) for c in meta["checkpoints"]}
+        return {"day": day, "frames": frames, "index_pct": meta["index_pct"], "pending": [],
+                "notes": meta["notes"], "candidates": meta["candidates"], "source": "saved"}
+    saved = sample.picks() if sample.available() else None
+    if saved and saved["day"] == day and saved["params"] == p.to_dict() and tuple(saved["frames"]) == reached:
+        return {**saved, "source": "bundled"}
+    return None
+
+
 def evaluate(snap: pd.DataFrame, p: ScreenParams | None = None, cps: tuple[str, ...] = CHECKPOINTS,
-             progress: Callable[[float, str], None] | None = None) -> dict:
+             progress: Callable[[float, str], None] | None = None, use_cache: bool = True) -> dict:
     """Screen the latest session at each checkpoint. Returns a dict with per-checkpoint frames,
     the index move at each checkpoint, candidate counts and data-quality notes."""
     p = p or ScreenParams()
@@ -312,7 +404,7 @@ def evaluate(snap: pd.DataFrame, p: ScreenParams | None = None, cps: tuple[str, 
     codes = list(quotes)
     # A checkpoint's picture is fixed once it has passed, so results are cached as soon as they exist.
     key = _cache_key(day, p, reached)
-    cached = storage.load_frame("checkpoints", key)
+    cached = storage.load_frame("checkpoints", key) if use_cache else None
 
     if cached is not None:
         rows = cached
@@ -350,10 +442,11 @@ def evaluate(snap: pd.DataFrame, p: ScreenParams | None = None, cps: tuple[str, 
         f = score(apply_rules(f, p, idx.get(hh)), idx.get(hh))
         out["frames"][hh] = f.sort_values(["rules_met", "score"], ascending=False).reset_index(drop=True)
     if (rows["flow_at"] == "end of day").any():
-        out["notes"].append("Main-fund flow at the checkpoint isn't available for this session from your network; "
+        out["notes"].append("Main-fund flow at 14:00 / 14:30 isn't available for this session from your network; "
                             "the session's end-of-day net inflow is used instead (confidence: medium).")
     if idx == {}:
         out["notes"].append("CSI 300 minute data unavailable - 'beats the market' could not be checked.")
+    save_result(out, p)
     return out
 
 
@@ -391,6 +484,9 @@ def _attach_flow(rows: pd.DataFrame, day: date) -> pd.DataFrame:
             mask = rows["main_net"].isna() & rows["code"].isin(m.index)
             rows.loc[mask, "main_net"] = rows.loc[mask, "code"].map(m)
             rows.loc[mask, "flow_at"] = "end of day"
+            # At 15:00 (the close) an end-of-day flow IS the checkpoint value.
+            at_close = mask & (rows["checkpoint"] == CLOSE) & (day < now_bj().date() or now_bj().hour >= 15)
+            rows.loc[at_close, "flow_at"] = "checkpoint"
             # Compare an end-of-day flow with end-of-day value traded.
             amt = realtime.quotes(still).set_index("code")["amount"]
             rows.loc[mask, "amount_for_flow"] = rows.loc[mask, "code"].map(amt)
@@ -399,10 +495,10 @@ def _attach_flow(rows: pd.DataFrame, day: date) -> pd.DataFrame:
 
 
 TIERS = {
-    "A": "Met every rule at 14:00 and still at 14:30",
-    "B": "Met every rule at 14:30",
-    "C": "Met every rule at 14:00, slipped by 14:30",
-    "D": "One rule short at the latest checkpoint",
+    "A": "Met every rule at every checkpoint so far",
+    "B": "Met every rule at the latest checkpoint",
+    "C": "Met every rule earlier, not at the latest checkpoint",
+    "D": "One rule narrowly missed at the latest checkpoint",
 }
 
 
@@ -436,39 +532,38 @@ def close_miss(r: pd.Series, p: ScreenParams) -> bool:
 def ranked(result: dict, p: ScreenParams | None = None, top: int = 30) -> pd.DataFrame:
     """One ranked list across checkpoints: tier first (persistence = reliability), then score.
 
-    Tier D holds stocks one rule short at the latest checkpoint, and only when that rule
-    was narrowly missed."""
+    A needs every rule at every checkpoint reached (at least two). Tier D holds stocks one rule
+    short at the latest checkpoint, and only when that rule was narrowly missed."""
     p = p or ScreenParams()
     frames = result["frames"]
     if not frames:
         return pd.DataFrame()
     cps = [c for c in CHECKPOINTS if c in frames]
     latest = cps[-1]
-    base = frames[latest].set_index("code")
-    first = frames[cps[0]].set_index("code") if len(cps) > 1 else None
+    by_cp = {c: frames[c].set_index("code") for c in cps}
+    passes = {c: set(by_cp[c].index[by_cp[c]["passes"].astype(bool)]) for c in cps}
+    first = by_cp[cps[0]]
     rows = []
-    for code, r in base.iterrows():
-        p_latest = bool(r["passes"])
-        p_first = bool(first.loc[code, "passes"]) if first is not None and code in first.index else None
-        if p_latest and p_first:
+    for code in dict.fromkeys(code for c in reversed(cps) for code in by_cp[c].index):
+        passed_at = [c for c in cps if code in passes[c]]
+        r = next(by_cp[c].loc[code] for c in reversed(cps) if code in by_cp[c].index)
+        if len(cps) >= 2 and len(passed_at) == len(cps):
             tier = "A"
-        elif p_latest:
+        elif latest in passed_at:
             tier = "B"
-        elif p_first:
+        elif passed_at:
             tier = "C"
-        elif close_miss(r, p):
+        elif code in by_cp[latest].index and close_miss(by_cp[latest].loc[code], p):
             tier = "D"
         else:
             continue
-        rows.append({"tier": tier, "code": code, **r.to_dict(),
-                     "passes_first": p_first, "score_first": first.loc[code, "score"] if first is not None
-                     and code in first.index else np.nan})
-    # Stocks that passed at the first checkpoint but are absent at the latest (e.g. rebuilt only once).
-    if first is not None:
-        for code, r in first[first["passes"]].iterrows():
-            if code not in base.index:
-                rows.append({"tier": "C", "code": code, **r.to_dict(), "passes_first": True,
-                             "score_first": r["score"]})
+        row = {"tier": tier, "code": code, **r.to_dict()}
+        for c in cps:
+            row[f"at_{c}"] = "✓" if code in passes[c] else ("·" if code in by_cp[c].index else "")
+        if code in first.index:  # hindsight from the first checkpoint, never used for ranking
+            row["after_first"] = first.loc[code].get("after", np.nan)
+            row["after_first_label"] = first.loc[code].get("after_label", "")
+        rows.append(row)
     out = pd.DataFrame(rows)
     if out.empty:
         return out

@@ -247,12 +247,13 @@ use the scripts in `scripts/` (they share this app's data layer and cache).
             "python scripts/download_daily.py --all-cn --start 2026-01-01 --out data/exports", language="bash")
     st.markdown("**Point-in-time capture** (whole market + watchlist minute bars) - run it once now:")
     st.code("python scripts/capture_snapshot.py", language="bash")
-    st.markdown("**Schedule it for 14:00 and 14:30 Beijing on weekdays** with Windows Task Scheduler - the front "
-                "page then uses the real values at those minutes and opens instantly. 14:00 / 14:30 Beijing is "
-                "02:00 / 02:30 New York time during daylight saving (EDT) and 01:00 / 01:30 in winter (EST); "
-                "these commands use EDT. Holidays are skipped automatically.")
+    st.markdown("**Schedule it for 14:00, 14:30 and the 15:00 close (Beijing) on weekdays** with Windows Task "
+                "Scheduler. The front page then uses the real values at those minutes and opens instantly. In "
+                "New York that is 02:00, 02:30 and 03:00 during daylight saving (EDT), or 01:00, 01:30 and 02:00 "
+                "in winter (EST); these commands use EDT. The close capture runs 2 minutes late so the "
+                "closing-auction prints are in. Holidays are skipped automatically.")
     script = Path(__file__).resolve().parent.parent / "scripts" / "capture_snapshot.py"
-    for name, at in (("1400", "02:00"), ("1430", "02:30")):
+    for name, at in (("1400", "02:00"), ("1430", "02:30"), ("1500", "03:02")):
         st.code(f'schtasks /Create /TN "StockRT {name} capture" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST {at} '
-                f'/TR "\\"{sys.executable}\\" \\"{script}\\""', language="bash")
+                f'/TR "\\"{sys.executable}\\" \\"{script}\\" --label {name}"', language="bash")
     st.caption("Files land in data/snapshots/<date>/ and appear under Saved captures.")

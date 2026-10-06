@@ -12,7 +12,7 @@ the live data and exact column definitions, for use with whichever assistant you
 
 | Page | What it does |
 |---|---|
-| **尾盘选股 · Picks at 14:00 / 14:30** *(front page)* | The late-session query, answered: non-ST, +3–5%, volume ratio > 1, turnover 3–8%, MA5 crossing above MA10, rising MAs, volume and price up, main funds in, beating the CSI 300, float cap ¥5–20B. It replays the latest session **as it stood at 14:00 and 14:30** (rebuilt from minute data, or from a real capture when one exists) and gives one ranked list. **Tier** comes first, for reliability (A = every rule at both times), then a 0–100 **signal score** (trend, volume, main funds, intraday pattern, relative strength, liquidity). A confidence flag and a hindsight "→ close" column sit alongside. |
+| **尾盘选股 · Late-session picks** *(front page)* | The late-session query, answered: non-ST, +3–5%, volume ratio > 1, turnover 3–8%, MA5 crossing above MA10, rising MAs, volume and price up, main funds in, beating the CSI 300, float cap ¥5–20B. It shows the latest session **as it stood at 14:00, 14:30 and the 15:00 close** (rebuilt from minute data, or from a real capture when one exists) and gives one ranked list. A checkpoint that hasn't come yet says why and when, e.g. "Not yet - the market closes at 15:00 Beijing (in 41 min)". On a holiday it names the holiday and the reopening day. **Tier** comes first, for reliability (A = every rule at every checkpoint), then a 0–100 **signal score**. A confidence flag and a hindsight "14:00 → close" column sit alongside. |
 | **Live dashboard** | One stock: latest price, daily / 1-month / period return, volatility, max drawdown, P/E, rule-based sentiment. Intraday chart with VWAP and the lunch break removed, session statistics (morning vs afternoon, VWAP, volume ratio, turnover, main-fund flow, active buying), daily chart, and announcements with links to the page and PDF. Auto-refreshes every 30 s while trading. |
 | **Intraday at 14:00** | Watchlist statistics and an overlay chart up to a cut-off (11:30 / 13:30 / 14:00 / 14:30 / close). One-click **capture of the whole market** at that moment, plus auto-capture at chosen Beijing times while the app runs. |
 | **Screener & query** | Rule-based screen of all ~5,500 A-shares. The default preset is the late-session momentum screen (non-ST, +3–5%, volume ratio > 1, turnover 3–8%, MA5 crossing above MA10, rising MAs, volume and price up, main-fund inflow, beating the CSI 300, float cap ¥5–20B). Shows a funnel, near misses and market mood, and has a **SQL tab** for querying the live snapshot. |
@@ -59,8 +59,20 @@ the sample with a newer session, run `python scripts/build_sample.py` (~6 minute
 ## Deploy (free)
 
 Push to GitHub, then on [Render](https://render.com) choose **New → Blueprint** and pick the repo.
-`render.yaml` starts the app on the free plan in sample mode. Set `STOCKRT_LOCK_MODE=1` to stop
-visitors switching it to live. Streamlit Community Cloud also works: point it at
+`render.yaml` starts the app on the free plan with **live data**, so the front page is real time while
+the market trades.
+
+The site is built to stay small on a free 512 MB instance:
+
+- The front page finds the session from the official calendar and shows a saved result when one exists.
+  On holidays, overnight and on revisits it downloads nothing. The whole-market download happens only
+  the first time a new checkpoint is computed.
+- Other pages, and the chart and analytics code, load only when someone clicks them. Measured: about
+  150 MB for the front page alone, about 250 MB after visiting four more pages.
+- Caches are capped, and a closed browser tab's session is freed after 60 s.
+
+Set `STOCKRT_DATA_MODE=sample` for a fully offline demo, and `STOCKRT_LOCK_MODE=1` to hide the
+live/sample switch from visitors. Streamlit Community Cloud also works: point it at
 `streamlit_app.py` and add `STOCKRT_DATA_MODE = "sample"` under its secrets / environment settings.
 
 ## Data, in one paragraph
@@ -88,9 +100,10 @@ python scripts/capture_snapshot.py
 `capture_snapshot.py` saves every A-share quote (with main-fund flow), every HK quote and the
 watchlist's 1-minute bars to `data/snapshots/<date>/`. From 14:00 onwards it also pre-computes the
 front page from those real values, so the site opens instantly. It skips weekends and holidays
-(official calendars) unless you pass `--force`. Schedule it for **14:00 and 14:30 Beijing** on
-weekdays (from New York that is 02:00 / 02:30 EDT, or 01:00 / 01:30 EST) with Windows Task
-Scheduler. The exact commands are on the *Data downloads → Bulk & scheduled* tab.
+(official calendars) unless you pass `--force`. Schedule it for **14:00, 14:30 and the 15:00 close (Beijing)** on
+weekdays with Windows Task Scheduler. From New York that is 02:00 / 02:30 / 03:00 EDT, or
+01:00 / 01:30 / 02:00 EST. The close capture runs at :02 with `--label 1500`, so the closing
+auction has printed. The exact commands are on the *Data downloads → Bulk & scheduled* tab.
 
 ## Tests
 

@@ -34,3 +34,6 @@ toolbarMode = "minimal"
 
 [server]
 runOnSave = true
+# Free a closed browser tab's session after 60 s (default 120) - saves memory on a small instance.
+disconnectedSessionTTL = 60
+maxUploadSize = 10

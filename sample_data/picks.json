@@ -2,14 +2,16 @@
  "day": "2026-09-30",
  "checkpoints": [
   "14:00",
-  "14:30"
+  "14:30",
+  "15:00"
  ],
  "index_pct": {
   "14:00": 0.4059642687004761,
-  "14:30": 0.40320260700863475
+  "14:30": 0.40320260700863475,
+  "15:00": 0.28560184663111166
  },
  "notes": [
-  "Main-fund flow at the checkpoint isn't available for this session from your network; the session's end-of-day net inflow is used instead (confidence: medium)."
+  "Main-fund flow at 14:00 / 14:30 isn't available for this session from your network; the session's end-of-day net inflow is used instead (confidence: medium)."
  ],
  "candidates": 242,
  "params": {

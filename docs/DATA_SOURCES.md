@@ -127,7 +127,7 @@ Verified against independent figures:
 | Moutai earliest adjusted close (2001) | positive | ¥4.00 (Tencent additive: negative) |
 | Bulk path (dividend text) vs Sina factors, Moutai daily returns | n/a | max difference 0.005% |
 
-## Rebuilding 14:00 / 14:30 after the fact (front page)
+## Rebuilding 14:00 / 14:30 / 15:00 after the fact (front page)
 
 Quote feeds show only end-of-day values after the close, so `stockrt/checkpoint.py` rebuilds each
 stock at a checkpoint from its 1-minute series and daily history:
@@ -144,6 +144,9 @@ Checked by rebuilding 40 random stocks "at 15:00" and comparing with the real en
 | volume ratio | 0.3% | 1.0% |
 | turnover | 0.2% | 1.1% |
 | float market cap | 0.01% | 0.03% |
+
+The 15:00 checkpoint is the close. It appears from 15:01, once the closing auction has printed, and its
+end-of-day money flow is the checkpoint value, so it carries high confidence.
 
 Minute data is fetched only for stocks that end-of-day facts can't rule out (the day's range must
 touch the 3–5% band, and end-of-day turnover must already exceed the minimum, because cumulative

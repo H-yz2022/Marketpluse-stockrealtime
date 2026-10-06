@@ -163,6 +163,16 @@ def next_trading_day(mkt: str, after: date, include: bool = False) -> date | Non
     return None
 
 
+def previous_trading_day(mkt: str, before: date) -> date | None:
+    d = before - timedelta(days=1)
+    for _ in range(40):
+        t = is_trading_day(mkt, d)
+        if t or (t is None and d.weekday() < 5):
+            return d
+        d -= timedelta(days=1)
+    return None
+
+
 def _skip_weekend(d: date) -> date:
     while d.weekday() >= 5:
         d += timedelta(days=1)

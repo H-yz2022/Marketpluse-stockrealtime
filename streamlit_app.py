@@ -10,7 +10,6 @@ import streamlit as st
 from stockrt import sample, watchlist
 from stockrt.calendar import now_bj, status
 from stockrt.config import DEFAULT_RISK_FREE
-from ui import cache
 
 st.set_page_config(
     page_title="尾盘选股 · China & HK markets",
@@ -27,7 +26,7 @@ if "watchlist" not in st.session_state:
 page = st.navigation(
     {
         "": [
-            st.Page("app_pages/picks.py", title="尾盘选股 · Picks at 14:00 / 14:30", icon=":material/leaderboard:",
+            st.Page("app_pages/picks.py", title="尾盘选股 · Late-session picks", icon=":material/leaderboard:",
                     default=True),
         ],
         "Markets": [
@@ -52,6 +51,8 @@ def quote_delays() -> dict[str, int]:
     if sample.is_sample():
         return {}
     try:
+        from ui import cache  # loaded lazily: only while a market is trading
+
         q = cache.quotes(("sh000300", "hkHSI")).set_index("code")["time"]
         now = now_bj()
         return {"CN": int((now - q["sh000300"]).total_seconds() // 60),

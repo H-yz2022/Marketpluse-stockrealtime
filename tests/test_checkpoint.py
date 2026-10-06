@@ -100,3 +100,48 @@ def test_tiers_and_close_misses():
     assert r.loc["near", "tier"] == "D"
     assert "limitup" not in r.index  # +9.98% misses 3-5% by far too much to be a near miss
     assert r["tier"].tolist() == sorted(r["tier"].tolist())
+
+
+def test_plan_explains_pending_checkpoints(monkeypatch):
+    from datetime import datetime
+
+    from stockrt.calendar import BJ
+
+    monkeypatch.setattr(checkpoint, "now_bj", lambda: datetime(2026, 10, 8, 14, 20, tzinfo=BJ))
+    plan = {x["checkpoint"]: x for x in checkpoint.plan(date(2026, 10, 8))}
+    assert plan["14:00"]["ready"] and not plan["14:30"]["ready"] and not plan["15:00"]["ready"]
+    assert "in 11 min" in plan["14:30"]["reason"]
+    assert "closes at 15:00" in plan["15:00"]["reason"] and "41 min" in plan["15:00"]["reason"]
+    # One minute of grace: 15:00 is shown from 15:01, after the closing auction prints.
+    monkeypatch.setattr(checkpoint, "now_bj", lambda: datetime(2026, 10, 8, 15, 0, 30, tzinfo=BJ))
+    assert not checkpoint.checkpoint_reached(date(2026, 10, 8), "15:00")
+    monkeypatch.setattr(checkpoint, "now_bj", lambda: datetime(2026, 10, 8, 15, 1, tzinfo=BJ))
+    assert checkpoint.checkpoint_reached(date(2026, 10, 8), "15:00")
+
+
+def test_latest_session_skips_holidays(monkeypatch):
+    from datetime import datetime
+
+    from stockrt.calendar import BJ
+
+    # Golden Week: on Tue 6 Oct the latest A-share session is Wed 30 Sep, and the page says why.
+    monkeypatch.setattr(checkpoint, "now_bj", lambda: datetime(2026, 10, 6, 12, 0, tzinfo=BJ))
+    assert checkpoint.latest_session_day() == date(2026, 9, 30)
+    # Reopening day before the open: still the previous session; after 09:30, today.
+    monkeypatch.setattr(checkpoint, "now_bj", lambda: datetime(2026, 10, 8, 9, 0, tzinfo=BJ))
+    assert checkpoint.latest_session_day() == date(2026, 9, 30)
+    monkeypatch.setattr(checkpoint, "now_bj", lambda: datetime(2026, 10, 8, 9, 31, tzinfo=BJ))
+    assert checkpoint.latest_session_day() == date(2026, 10, 8)
+
+
+def test_three_checkpoint_tiers():
+    p = ScreenParams()
+    mk = lambda **o: checkpoint.score(checkpoint.apply_rules(frame(**o), p, 0.4), 0.4)  # noqa: E731
+    res = {"frames": {
+        "14:00": pd.concat([mk(code="always"), mk(code="once")], ignore_index=True),
+        "14:30": pd.concat([mk(code="always"), mk(code="once", turnover_rate=9.0)], ignore_index=True),
+        "15:00": pd.concat([mk(code="always"), mk(code="once", turnover_rate=9.5)], ignore_index=True),
+    }}
+    r = checkpoint.ranked(res, p).set_index("code")
+    assert r.loc["always", "tier"] == "A" and r.loc["always", "at_15:00"] == "✓"
+    assert r.loc["once", "tier"] == "C" and r.loc["once", "at_14:00"] == "✓" and r.loc["once", "at_15:00"] == "·"

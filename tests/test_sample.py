@@ -56,7 +56,7 @@ def test_front_page_replay_offline(sample_mode):
 
     snap = realtime.market_snapshot("CN")
     res = checkpoint.evaluate(snap)
-    assert set(res["frames"]) == {"14:00", "14:30"}
+    assert set(res["frames"]) == {"14:00", "14:30", "15:00"}
     assert res["index_pct"] and res["candidates"] > 50
     r = checkpoint.ranked(res)
     assert not r.empty and r["rank"].tolist() == list(range(1, len(r) + 1))

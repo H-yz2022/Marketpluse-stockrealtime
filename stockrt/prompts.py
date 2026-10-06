@@ -395,34 +395,39 @@ def delete_from_library(name: str) -> None:
 def checkpoint_review(rules: list[str], day: str, index_moves: dict[str, float], ranked: pd.DataFrame,
                       lang: str = "en") -> str:
     """The front-page ranked list (14:00 / 14:30 replay) as a prompt."""
-    cols = ["rank", "tier", "code", "name", "score", "rules_met", "missed", "pct_change", "volume_ratio",
-            "turnover_rate", "float_mcap", "cross_days_ago", "main_net", "flow_at", "price", "vwap", "after"]
+    cols = ["rank", "tier", "code", "name", "score", "rules_met", "missed", "at_14:00", "at_14:30", "at_15:00",
+            "pct_change", "volume_ratio", "turnover_rate", "float_mcap", "cross_days_ago", "main_net", "flow_at",
+            "price", "vwap", "after_first"]
     moves = ", ".join(f"{k} {v:+.2f}%" for k, v in index_moves.items())
-    tiers = "A = met every rule at 14:00 and 14:30; B = at 14:30 only; C = at 14:00 only; D = one rule narrowly missed"
+    tiers = ("A = met every rule at every checkpoint; B = at the latest checkpoint; C = earlier but not at the "
+             "latest; D = one rule narrowly missed")
     if lang == "zh":
-        return f"""以下是 {day} A股按我的尾盘选股条件、在14:00和14:30两个时点回放筛选并排序的结果。沪深300：{moves}。
+        return f"""以下是 {day} A股按我的尾盘选股条件、在14:00、14:30和15:00收盘三个时点回放筛选并排序的结果。沪深300：{moves}。
 
 选股条件：
 {chr(10).join('- ' + r for r in rules)}
 
-分级：A=14:00与14:30均满足全部条件；B=仅14:30满足；C=仅14:00满足；D=差一个条件且差距很小。
+分级：A=每个时点都满足全部条件；B=最新时点满足；C=较早时点满足、最新时点不满足；D=差一个条件且差距很小。
+at_14:00 / at_14:30 / at_15:00 列中 ✓ 表示该时点满足全部条件。
 score为0-100的信号质量分（均线 25%、量能 20%、主力资金 20%、分时形态 20%、相对强弱 10%、流动性 5%）。
-after 为该时点之后到收盘的涨跌（事后数据，未参与排序）。flow_at=end of day 表示主力资金用的是全天数据。
+after_first 为14:00之后到收盘的涨跌（事后数据，未参与排序）。flow_at=end of day 表示主力资金用的是全天数据。
 
 {_csv(ranked, cols)}
 
 请：1. 评价排序是否合理，哪几只最可靠、为什么；2. 指出每只的主要风险；3. 结合 after 列，评估这套条件在当天的有效性；
 4. 建议如何改进条件或排序。
 {GUARDRAILS['zh']}"""
-    return f"""Below is my China A-share late-session screen, replayed at 14:00 and 14:30 on {day} and ranked.
+    return f"""Below is my China A-share late-session screen, replayed at 14:00, 14:30 and the 15:00 close on
+{day} and ranked.
 CSI 300 at those times: {moves}.
 
 Screen rules:
 {chr(10).join('- ' + r for r in rules)}
 
-Tiers: {tiers}. score is a 0-100 signal-quality score (trend 25%, volume 20%, main funds 20%,
-intraday pattern 20%, relative strength 10%, liquidity 5%). after = move from the checkpoint to the
-close (hindsight, not used for ranking). flow_at = "end of day" means main-fund flow is the session's
+Tiers: {tiers}. In the at_14:00 / at_14:30 / at_15:00 columns ✓ means every rule was met at that time.
+score is a 0-100 signal-quality score (trend 25%, volume 20%, main funds 20%, intraday pattern 20%,
+relative strength 10%, liquidity 5%). after_first = move from 14:00 to the close (hindsight, not used
+for ranking). flow_at = "end of day" means main-fund flow is the session's
 end-of-day figure rather than the value at the checkpoint.
 
 {_csv(ranked, cols)}
