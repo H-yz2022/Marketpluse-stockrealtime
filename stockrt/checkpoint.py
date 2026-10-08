@@ -31,6 +31,7 @@ import hashlib
 import json
 import logging
 import math
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, time, timedelta
@@ -38,7 +39,7 @@ from datetime import date, time, timedelta
 import numpy as np
 import pandas as pd
 
-from . import http, realtime, sample, storage
+from . import archive, http, realtime, sample, storage
 from .calendar import CLOSE_AUCTION_END, elapsed_at, now_bj, total_minutes
 from .config import SNAPSHOT_DIR
 from .screener import BOARDS, ScreenParams, trend_features
@@ -47,6 +48,7 @@ from .sources import eastmoney, tencent
 log = logging.getLogger(__name__)
 
 GRACE = timedelta(minutes=1)  # let the minute's bar (and the closing auction) print
+WORKERS = int(os.environ.get("STOCKRT_WORKERS", "10"))  # more on slow (overseas) servers
 
 
 @dataclass(frozen=True)
@@ -413,6 +415,10 @@ def load_result(day: date, p: ScreenParams | None = None, spec: MarketSpec = CN)
         return {"day": day, "frames": frames, "index_pct": meta["index_pct"], "pending": [],
                 "notes": meta["notes"], "candidates": meta["candidates"], "source": "saved",
                 "flow_checked": meta.get("flow_checked", True)}
+    if p == ScreenParams() and set(reached) == set(spec.checkpoints):
+        archived = archive.load(spec.mkt, day)
+        if archived is not None:
+            return archived
     if spec.mkt != "CN":
         return None
     saved = sample.picks() if sample.available() else None
@@ -423,7 +429,7 @@ def load_result(day: date, p: ScreenParams | None = None, spec: MarketSpec = CN)
 
 def evaluate(snap: pd.DataFrame, p: ScreenParams | None = None, cps: tuple[str, ...] | None = None,
              progress: Callable[[float, str], None] | None = None, use_cache: bool = True,
-             spec: MarketSpec = CN) -> dict:
+             spec: MarketSpec = CN, day: date | None = None) -> dict:
     """Screen the latest session at each checkpoint. Returns a dict with per-checkpoint frames,
     the index move at each checkpoint, candidate counts and data-quality notes."""
     p = p or ScreenParams()
@@ -432,7 +438,12 @@ def evaluate(snap: pd.DataFrame, p: ScreenParams | None = None, cps: tuple[str, 
         saved = sample.picks()
         if saved and saved["params"] == p.to_dict() and tuple(saved["frames"]) == cps:
             return saved
-    day = session_day(snap)
+    snap_day = session_day(snap)
+    if day is not None and snap_day != day:
+        # The feed has moved on (e.g. today's pre-open auction has started): that session can no longer be rebuilt.
+        return {"day": day, "frames": {}, "index_pct": {}, "pending": [], "candidates": 0,
+                "notes": [f"The market data has moved on to {snap_day}; {day} can no longer be rebuilt."]}
+    day = snap_day
     reached = tuple(c for c in cps if checkpoint_reached(day, c))
     pending = [c for c in cps if c not in reached]
     out = {"day": day, "frames": {}, "index_pct": {}, "pending": pending, "notes": [], "candidates": 0}
@@ -458,11 +469,11 @@ def evaluate(snap: pd.DataFrame, p: ScreenParams | None = None, cps: tuple[str, 
             if captured[hh] is not None:
                 recs += _captured_rows(captured[hh], p, day, hh, codes)
         if minute_cps:
-            step = 40
+            step = max(40, WORKERS * 3)
             for i in range(0, len(codes), step):
                 chunk = codes[i:i + step]
                 for res in http.pmap(lambda c: _stock_rows(c, quotes[c], day, minute_cps, spec), chunk,
-                                     workers=10):
+                                     workers=WORKERS):
                     if isinstance(res, list):
                         recs += res
                 if progress:
@@ -496,7 +507,47 @@ def evaluate(snap: pd.DataFrame, p: ScreenParams | None = None, cps: tuple[str, 
     if idx == {}:
         out["notes"].append(f"{spec.index_name} minute data unavailable - 'beats the market' could not be checked.")
     save_result(out, p, spec)
+    if set(reached) == set(spec.checkpoints) and p == ScreenParams():
+        archive.save(out, spec.mkt, p.to_dict())  # a finished session for the "Past sessions" list
     return out
+
+
+def latest_saved(spec: MarketSpec = CN, p: ScreenParams | None = None, on_or_before: date | None = None) -> dict | None:
+    """The newest result already on disk or in the archive (no network) - what the page shows while a newer
+    checkpoint is still being computed."""
+    p = p or ScreenParams()
+    h = _cache_key(date(2000, 1, 1), p, ("x",), spec).rsplit("_", 1)[1]
+    prefix = "result_" + ("" if spec.mkt == "CN" else f"{spec.mkt.lower()}_")
+    found: list[tuple[date, int, str]] = []
+    for key in storage.list_keys("checkpoints", prefix):
+        parts = key[len(prefix):].split("_")
+        if len(parts) != 3 or parts[2] != h or not parts[0][:4].isdigit():
+            continue
+        d = date.fromisoformat(parts[0])
+        found.append((d, len(parts[1].split("-")), key))
+    if p == ScreenParams():
+        found += [(d, len(spec.checkpoints), "archive") for d in archive.sessions(spec.mkt)]
+    if spec.mkt == "CN" and sample.available() and p == ScreenParams():
+        saved = sample.picks()
+        if saved:
+            found.append((saved["day"], len(saved["frames"]), "bundled"))
+    found = [f for f in found if on_or_before is None or f[0] <= on_or_before]
+    for d, _, key in sorted(found, reverse=True):
+        if key == "archive":
+            res = archive.load(spec.mkt, d)
+        elif key == "bundled":
+            res = {**sample.picks(), "source": "bundled"}
+        else:
+            meta, rows = storage.load_json("checkpoints", key), storage.load_frame("checkpoints", key)
+            res = None if not meta or rows is None else {
+                "day": d, "frames": {c: rows[rows["checkpoint"] == c].reset_index(drop=True)
+                                     for c in meta["checkpoints"]},
+                "index_pct": meta["index_pct"], "pending": [], "notes": meta["notes"],
+                "candidates": meta["candidates"], "flow_checked": meta.get("flow_checked", True),
+                "source": "saved"}
+        if res and res.get("frames"):
+            return res
+    return None
 
 
 def _attach_flow(rows: pd.DataFrame, day: date, spec: MarketSpec = CN) -> pd.DataFrame:

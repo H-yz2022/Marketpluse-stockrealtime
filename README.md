@@ -12,7 +12,7 @@ the live data and exact column definitions, for use with whichever assistant you
 
 | Page | What it does |
 |---|---|
-| **尾盘选股 · Late-session picks** *(front page)* | The late-session query, answered: non-ST, +3–5%, volume ratio > 1, turnover 3–8%, MA5 crossing above MA10, rising MAs, volume and price up, main funds in, beating the CSI 300, float cap ¥5–20B. It shows the latest session **as it stood at 14:00, 14:30 and the 15:00 close** (rebuilt from minute data, or from a real capture when one exists) and gives one ranked list. A checkpoint that hasn't come yet says why and when, e.g. "Not yet - the market closes at 15:00 Beijing (in 41 min)". On a holiday it names the holiday and the reopening day. **Tier** comes first, for reliability (A = every rule at every checkpoint), then a 0–100 **signal score**. A confidence flag and a hindsight "14:00 → close" column sit alongside. |
+| **尾盘选股 · Late-session picks** *(front page)* | The late-session query, answered: non-ST, +3–5%, volume ratio > 1, turnover 3–8%, MA5 crossing above MA10, rising MAs, volume and price up, main funds in, beating the CSI 300, float cap ¥5–20B. It shows the latest session **as it stood at 14:00, 14:30 and the 15:00 close** (rebuilt from minute data, or from a real capture when one exists) and gives one ranked list. A checkpoint that hasn't come yet says why and when, e.g. "Not yet - the market closes at 15:00 Beijing (in 41 min)". On a holiday it names the holiday and the reopening day. **Tier** comes first, for reliability (A = every rule at every checkpoint), then a 0–100 **signal score**. A confidence flag and a hindsight "14:00 → close" column sit alongside. The page is **never empty**: the newest saved session shows instantly, and a checkpoint that still needs computing is rebuilt by a background job, then swapped in automatically. **Past sessions** are kept in a collapsed section that loads on demand. Before the open, a **pre-open auction (集合竞价)** panel shows indicative prices and gaps; after the open, the auction result is one click away. |
 | **Live dashboard** | One stock: latest price, daily / 1-month / period return, volatility, max drawdown, P/E, rule-based sentiment. Intraday chart with VWAP and the lunch break removed, session statistics (morning vs afternoon, VWAP, volume ratio, turnover, main-fund flow, active buying), daily chart, and announcements with links to the page and PDF. Auto-refreshes every 30 s while trading. |
 | **Intraday at 14:00** | Watchlist statistics and an overlay chart up to a cut-off (11:30 / 13:30 / 14:00 / 14:30 / close). One-click **capture of the whole market** at that moment, plus auto-capture at chosen Beijing times while the app runs. |
 | **尾盘选股 · Hong Kong (live test)** | The same screen run live on Hong Kong stocks at **15:00, 15:30 and the 16:00 close** (the same last-hour pattern; HK closes an hour later), against the Hang Seng Index, with market value in HKD. It exercises the whole pipeline on live data and doubles as a pre-test before the A-share checkpoints. A switch offers **HK-adapted turnover (0.5–8%)**, because HK turnover rates are far below mainland ones. HK main-fund flow comes only from East Money; when that is unreachable the rule is shown as unchecked (confidence Low). |
@@ -63,6 +63,11 @@ Push to GitHub, then on [Render](https://render.com) choose **New → Blueprint*
 `render.yaml` starts the app on the free plan with **live data**, so the front page is real time while
 the market trades.
 
+Finished sessions are archived in `results/<market>/<date>.parquet` (about 150 KB each), and these files ship
+with the code. A fresh or restarted free-tier server, whose disk starts empty, therefore opens on real past
+sessions immediately. New sessions are archived automatically wherever they are computed. Commit them
+(`git add results`) and push to keep the deployed site's history complete.
+
 The site is built to stay small on a free 512 MB instance:
 
 - The front page finds the session from the official calendar and shows a saved result when one exists.
@@ -72,7 +77,8 @@ The site is built to stay small on a free 512 MB instance:
   150 MB for the front page alone, about 250 MB after visiting four more pages.
 - Caches are capped, and a closed browser tab's session is freed after 60 s.
 
-Set `STOCKRT_DATA_MODE=sample` for a fully offline demo, and `STOCKRT_LOCK_MODE=1` to hide the
+`STOCKRT_WORKERS` sets how many requests run in parallel (24 on Render, where each request to the mainland
+sources is slow). Set `STOCKRT_DATA_MODE=sample` for a fully offline demo, and `STOCKRT_LOCK_MODE=1` to hide the
 live/sample switch from visitors. Streamlit Community Cloud also works: point it at
 `streamlit_app.py` and add `STOCKRT_DATA_MODE = "sample"` under its secrets / environment settings.
 

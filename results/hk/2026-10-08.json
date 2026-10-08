@@ -1,0 +1,44 @@
+{
+ "day": "2026-10-08",
+ "market": "HK",
+ "checkpoints": [
+  "15:00",
+  "15:30",
+  "16:00"
+ ],
+ "index_pct": {
+  "15:00": -1.1786742918712734,
+  "15:30": -1.328774787095166,
+  "16:00": -1.4285240670520727
+ },
+ "notes": [
+  "No main-fund flow source is reachable right now, so 'main funds flowing in' was not checked (confidence: low)."
+ ],
+ "candidates": 2,
+ "flow_checked": false,
+ "params": {
+  "exclude_st": true,
+  "boards": [
+   "Main",
+   "ChiNext",
+   "STAR",
+   "BSE"
+  ],
+  "pct_min": 3.0,
+  "pct_max": 5.0,
+  "volume_ratio_min": 1.0,
+  "turnover_min": 3.0,
+  "turnover_max": 8.0,
+  "float_mcap_min_bn": 5.0,
+  "float_mcap_max_bn": 20.0,
+  "price_min": null,
+  "price_max": null,
+  "outperform_market": true,
+  "golden_cross": true,
+  "cross_within": 3,
+  "ma_rising": true,
+  "volume_price_up": true,
+  "main_inflow": true,
+  "max_history_candidates": 300
+ }
+}

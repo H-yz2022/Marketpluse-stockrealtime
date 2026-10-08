@@ -32,6 +32,18 @@ def universe(mkt: str = "CN", refresh: bool = False) -> pd.DataFrame:
     cached = storage.load_frame("universe", key)
     if cached is not None and not refresh and age is not None and age < UNIVERSE_MAX_AGE:
         return cached
+    if cached is None and not refresh:
+        # Cold start (e.g. a fresh free-tier server): the list bundled with the app saves ~100 slow page
+        # requests. "Refresh stock lists" on the Data sources page re-downloads it.
+        from . import sample
+
+        bundled = sample.SAMPLE_DIR / "universe.parquet"
+        if bundled.exists():
+            u = pd.read_parquet(bundled)
+            df = u[u["market"] == mkt][["code", "name"]].reset_index(drop=True)
+            if not df.empty:
+                storage.save_frame("universe", key, df)
+                return df
     try:
         df = sina.universe_cn() if mkt == "CN" else sina.universe_hk()
         df = df[["code", "name"]]

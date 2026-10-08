@@ -44,6 +44,14 @@ def age_seconds(kind: str, key: str, ext: str = "parquet") -> float | None:
     return time.time() - p.stat().st_mtime if p.exists() else None
 
 
+def list_keys(kind: str, prefix: str = "", ext: str = "json") -> list[str]:
+    """Cache keys of one kind (file stems), e.g. every saved checkpoint result."""
+    if sample.is_sample():
+        return []
+    d = CACHE_DIR / kind
+    return sorted(f.stem for f in d.glob(f"{prefix}*.{ext}")) if d.exists() else []
+
+
 def load_frame(kind: str, key: str) -> pd.DataFrame | None:
     if sample.is_sample():
         return None

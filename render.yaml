@@ -15,5 +15,7 @@ services:
                              # and a holiday / overnight visit downloads nothing ("sample" = fully offline)
       - key: STOCKRT_LOCK_MODE
         value: "0"           # "1" hides the live-data switch so public visitors stay on the sample
+      - key: STOCKRT_WORKERS
+        value: "24"          # more parallel requests: each one is slow from an overseas server
       - key: PYTHON_VERSION
         value: "3.11.9"

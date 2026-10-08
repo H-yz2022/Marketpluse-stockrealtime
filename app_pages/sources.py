@@ -7,6 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from stockrt import http, realtime, sample, selftest
+from stockrt.calendar import now_bj
 from stockrt.config import CACHE_DIR, SNAPSHOT_DIR
 
 st.markdown("China market data has no official free API. This app reads the JSON / text endpoints behind "
@@ -26,7 +27,7 @@ with st.container(horizontal=True):
         st.toast("Circuit breakers reset")
 if run:
     with st.spinner("Testing every endpoint…"):
-        st.session_state.selftest = (pd.DataFrame(selftest.run_all()), time.strftime("%H:%M:%S"))
+        st.session_state.selftest = (pd.DataFrame(selftest.run_all()), now_bj().strftime("%H:%M:%S") + " Beijing")
 
 if "selftest" in st.session_state:
     df, when = st.session_state.selftest
