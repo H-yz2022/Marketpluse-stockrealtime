@@ -137,13 +137,16 @@ def elapsed_at(mkt: str, hhmm: str) -> int:
 
 
 def session_of(mkt: str, t: time) -> str:
-    """'AM', 'PM', 'auction' (pre-open) or 'post' for a minute-bar timestamp."""
+    """'AM', 'PM', 'auction' (pre-open) or 'post' for a minute-bar timestamp.
+
+    The closing auction belongs to the session: HK's runs 16:00-16:10 and prints the official
+    close at about 16:08 (A-shares' 14:57-15:00 auction already prints at 15:00)."""
     (am_open, am_close), (pm_open, pm_close) = SESSIONS[mkt]
     if t < am_open:
         return "auction"
     if t <= am_close:
         return "AM"
-    if pm_open <= t <= pm_close:
+    if pm_open <= t <= max(pm_close, CLOSE_AUCTION_END[mkt]):
         return "PM"
     if t > pm_close:
         return "post"

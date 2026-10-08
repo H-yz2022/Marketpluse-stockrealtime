@@ -145,6 +145,15 @@ Checked by rebuilding 40 random stocks "at 15:00" and comparing with the real en
 | turnover | 0.2% | 1.1% |
 | float market cap | 0.01% | 0.03% |
 
+**Hong Kong** uses the same machinery with checkpoints at 15:00, 15:30 and the 16:00 close, measured
+against the Hang Seng Index. Two HK specifics were verified on the 8 Oct 2026 session:
+
+- **Closing auction.** HK's closing auction prints the official close at about 16:08, after the last
+  continuous-trading bar (15:59). That print is part of the session, so the 16:00 checkpoint equals the
+  official close (Tencent 411.40, volume identical to the quote).
+- **Captures.** Free HK quotes lag about 15 minutes, so HK checkpoints are always rebuilt from minute data,
+  never from captures.
+
 The 15:00 checkpoint is the close. It appears from 15:01, once the closing auction has printed, and its
 end-of-day money flow is the checkpoint value, so it carries high confidence.
 

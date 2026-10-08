@@ -145,3 +145,53 @@ def test_three_checkpoint_tiers():
     r = checkpoint.ranked(res, p).set_index("code")
     assert r.loc["always", "tier"] == "A" and r.loc["always", "at_15:00"] == "✓"
     assert r.loc["once", "tier"] == "C" and r.loc["once", "at_14:00"] == "✓" and r.loc["once", "at_15:00"] == "·"
+
+
+HK = checkpoint.SPECS["HK"]
+
+
+def test_hk_spec_labels_and_plan(monkeypatch):
+    from datetime import datetime
+
+    from stockrt.calendar import BJ
+
+    labels = dict(checkpoint.rule_labels(ScreenParams(), HK))
+    assert labels["rule_outperform"] == "Beats the Hang Seng Index"
+    assert labels["rule_float_cap"].endswith("bn HKD")
+    monkeypatch.setattr(checkpoint, "now_bj", lambda: datetime(2026, 10, 9, 15, 40, tzinfo=BJ))
+    plan = {x["checkpoint"]: x for x in checkpoint.plan(date(2026, 10, 9), HK)}
+    assert plan["15:00"]["ready"] and plan["15:30"]["ready"] and not plan["16:00"]["ready"]
+    assert "closes at 16:00" in plan["16:00"]["reason"]
+
+
+def test_hk_close_includes_closing_auction():
+    from datetime import time as t
+
+    from stockrt.calendar import session_of
+
+    assert session_of("HK", t(16, 8)) == "PM"      # closing-auction print belongs to the session
+    assert session_of("CN", t(15, 5)) == "post"    # mainland after-hours fixed-price trades do not
+    times = list(pd.date_range("2026-10-08 09:30", "2026-10-08 12:00", freq="min")) + \
+        list(pd.date_range("2026-10-08 13:01", "2026-10-08 15:59", freq="min")) + [pd.Timestamp("2026-10-08 16:08")]
+    price = np.r_[np.full(len(times) - 1, 10.4), [10.45]]
+    bars = pd.DataFrame({"datetime": times, "price": price, "volume": 1000.0})
+    bars["amount"] = bars["price"] * bars["volume"]
+    bars["session"] = [session_of("HK", x.time()) for x in bars["datetime"]]
+    hist = daily_hist(np.r_[np.full(5, 10.0), np.full(5, 9.9)])
+    q = {"price": 10.45, "float_mcap": 10.45e6, "float_shares": 1e6}
+    with patch("stockrt.checkpoint.tencent.minute_today", return_value=(date(2026, 10, 8), 10.0, bars)), \
+         patch("stockrt.checkpoint.tencent.daily", return_value=hist):
+        rows = {r["checkpoint"]: r for r in checkpoint._stock_rows("hk00001", q, date(2026, 10, 8),
+                                                                   HK.checkpoints, HK)}
+    assert set(rows) == {"15:00", "15:30", "16:00"}
+    assert rows["16:00"]["price"] == pytest.approx(10.45)       # the official close, after the auction
+    assert rows["15:30"]["price"] == pytest.approx(10.4)
+    assert rows["16:00"]["volume"] == pytest.approx(1000 * len(times))
+
+
+def test_missing_money_flow_is_unchecked_not_failed():
+    p = ScreenParams()
+    d = checkpoint.apply_rules(frame(main_net=np.nan), p, 0.4, HK, flow_known=False)
+    assert bool(d["rule_inflow"].iloc[0]) and d["passes"].iloc[0]
+    res = {"frames": {c: checkpoint.score(d, 0.4) for c in HK.checkpoints}, "flow_checked": False}
+    assert (checkpoint.ranked(res, p, spec=HK)["confidence"] == "Low").all()

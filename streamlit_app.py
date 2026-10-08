@@ -26,8 +26,8 @@ if "watchlist" not in st.session_state:
 page = st.navigation(
     {
         "": [
-            st.Page("app_pages/picks.py", title="尾盘选股 · Late-session picks", icon=":material/leaderboard:",
-                    default=True),
+            st.Page("app_pages/picks.py", title="尾盘选股 · A-shares", icon=":material/leaderboard:", default=True),
+            st.Page("app_pages/picks_hk.py", title="尾盘选股 · Hong Kong (live test)", icon=":material/science:"),
         ],
         "Markets": [
             st.Page("app_pages/screener.py", title="Screener & query", icon=":material/filter_alt:"),

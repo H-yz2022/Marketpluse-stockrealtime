@@ -24,6 +24,7 @@ from .calendar import now_bj
 from .calendar import status as session_status
 from .history import ma, with_live_bar
 from .sources import tencent
+from .symbols import market
 
 BOARDS = ("Main", "ChiNext", "STAR", "BSE")
 
@@ -186,11 +187,11 @@ def history_features(code: str, quote: dict) -> dict:
     close, vol = bars["close"].reset_index(drop=True), bars["volume"].reset_index(drop=True)
     trend = trend_features(close)
     # Pace-adjust today's volume when the quote is from a session still in progress.
-    st = session_status("CN")
+    st = session_status(market(code))
     qt = quote.get("time")
     live_today = qt is not None and pd.Timestamp(qt).date() == now_bj().date() and st.phase in (
         "morning", "lunch", "afternoon")
-    frac = max(st.fraction, 1 / 240) if live_today else 1.0
+    frac = max(st.fraction, 1 / st.total_min) if live_today else 1.0
     today_vol = float(vol.iloc[-1])
     return {
         "code": code,

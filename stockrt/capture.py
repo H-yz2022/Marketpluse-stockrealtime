@@ -70,6 +70,8 @@ def capture(label: str | None = None, include_flow: bool = True, include_hk: boo
             from . import checkpoint
 
             checkpoint.evaluate(cn.drop(columns=["captured_at"]))
+            if include_hk and now.hour >= 15 and "hk" in locals():
+                checkpoint.evaluate(hk.drop(columns=["captured_at"]), spec=checkpoint.SPECS["HK"])
         except Exception as e:  # noqa: BLE001 - the capture itself already succeeded
             log.warning("front-page precompute failed: %s", e)
 

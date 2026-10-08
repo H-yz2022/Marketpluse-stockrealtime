@@ -1,4 +1,8 @@
-"""Replay the late-session screen as the market stood at 14:00 and 14:30 of the latest session.
+"""Replay the late-session screen at fixed checkpoints of the latest session, per market.
+
+A-shares: 14:00, 14:30 and the 15:00 close (beats the CSI 300).
+Hong Kong: 15:00, 15:30 and the 16:00 close (beats the Hang Seng Index) - the same
+"one hour, half an hour, close" pattern, used as a live pre-test of the A-share pipeline.
 
 After the close, quote feeds only show end-of-day values, so each stock's state
 at a checkpoint is rebuilt from its 1-minute series:
@@ -28,31 +32,54 @@ import json
 import logging
 import math
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date, time, timedelta
 
 import numpy as np
 import pandas as pd
 
 from . import http, realtime, sample, storage
-from .calendar import elapsed_at, now_bj, total_minutes
+from .calendar import CLOSE_AUCTION_END, elapsed_at, now_bj, total_minutes
 from .config import SNAPSHOT_DIR
 from .screener import BOARDS, ScreenParams, trend_features
 from .sources import eastmoney, tencent
 
 log = logging.getLogger(__name__)
 
-CHECKPOINTS = ("14:00", "14:30", "15:00")
-CLOSE = "15:00"
-GRACE = timedelta(minutes=1)  # let the minute's bar (and the 15:00 closing auction) print
-INDEX = "sh000300"
+GRACE = timedelta(minutes=1)  # let the minute's bar (and the closing auction) print
 
 
-def rule_labels(p: ScreenParams) -> list[tuple[str, str]]:
+@dataclass(frozen=True)
+class MarketSpec:
+    mkt: str
+    label: str
+    index: str
+    index_name: str
+    checkpoints: tuple[str, ...]
+    currency: str
+
+    @property
+    def close(self) -> str:
+        return self.checkpoints[-1]
+
+
+SPECS = {
+    "CN": MarketSpec("CN", "A-shares", "sh000300", "CSI 300", ("14:00", "14:30", "15:00"), "CNY"),
+    "HK": MarketSpec("HK", "Hong Kong", "hkHSI", "Hang Seng Index", ("15:00", "15:30", "16:00"), "HKD"),
+}
+CN = SPECS["CN"]
+CHECKPOINTS = CN.checkpoints
+CLOSE = CN.close
+INDEX = CN.index
+
+
+def rule_labels(p: ScreenParams, spec: MarketSpec = CN) -> list[tuple[str, str]]:
     def rng(lo, hi, unit=""):
         if lo is not None and hi is not None:
             return f"{lo:g}–{hi:g}{unit}"
         return f"≥ {lo:g}{unit}" if lo is not None else (f"≤ {hi:g}{unit}" if hi is not None else "any")
 
+    cap_unit = " bn" if spec.mkt == "CN" else f" bn {spec.currency}"
     return [
         ("rule_not_st", "Non-ST"),
         ("rule_pct", f"Up {rng(p.pct_min, p.pct_max, '%')}"),
@@ -62,8 +89,8 @@ def rule_labels(p: ScreenParams) -> list[tuple[str, str]]:
         ("rule_ma_rising", "MAs rising"),
         ("rule_vol_price", "Volume & price up"),
         ("rule_inflow", "Main funds flowing in"),
-        ("rule_outperform", "Beats the CSI 300"),
-        ("rule_float_cap", f"Float cap {rng(p.float_mcap_min_bn, p.float_mcap_max_bn, ' bn')}"),
+        ("rule_outperform", f"Beats the {spec.index_name}"),
+        ("rule_float_cap", f"Float cap {rng(p.float_mcap_min_bn, p.float_mcap_max_bn, cap_unit)}"),
     ]
 
 
@@ -105,32 +132,33 @@ def _until(hhmm: str) -> str:
     return f"{h} h {m} min" if h else f"{m} min"
 
 
-def plan(day: date) -> list[dict]:
+def plan(day: date, spec: MarketSpec = CN) -> list[dict]:
     """Each checkpoint for `day`: shown, or not yet - and why, in plain words."""
     out = []
-    for cp in CHECKPOINTS:
+    for cp in spec.checkpoints:
         if checkpoint_reached(day, cp):
             out.append({"checkpoint": cp, "ready": True, "reason": ""})
-        elif cp == CLOSE:
+        elif cp == spec.close:
             out.append({"checkpoint": cp, "ready": False,
-                        "reason": f"Not yet - the market closes at 15:00 Beijing (in {_until(cp)})."})
+                        "reason": f"Not yet - the market closes at {cp} Beijing (in {_until(cp)})."})
         else:
             out.append({"checkpoint": cp, "ready": False,
                         "reason": f"Not yet - comes at {cp} Beijing (in {_until(cp)})."})
     return out
 
 
-def session_note(day: date) -> str:
+def session_note(day: date, spec: MarketSpec = CN) -> str:
     """Why the page shows `day` rather than today, when they differ."""
     from .calendar import status
 
     today = now_bj().date()
     if day == today:
         return ""
-    s = status("CN")
+    s = status(spec.mkt)
     when = pd.Timestamp(day).strftime("%a %d %b")
     if s.phase in ("holiday", "weekend"):
-        return f"A-shares are {s.label[0].lower() + s.label[1:]}. Showing the latest session, {when}."
+        subject = "A-shares are" if spec.mkt == "CN" else "The Hong Kong market is"
+        return f"{subject} {s.label[0].lower() + s.label[1:]}. Showing the latest session, {when}."
     if s.phase in ("before open", "pre-open"):
         return f"Today's session hasn't started yet (opens 09:30 Beijing). Showing the latest session, {when}."
     return f"Showing the latest session, {when}."
@@ -169,23 +197,24 @@ def prefilter(snap: pd.DataFrame, p: ScreenParams) -> pd.DataFrame:
 
 # --------------------------------------------------------------------------- per-stock reconstruction
 
-def _index_pct(day: date, cps: tuple[str, ...]) -> dict[str, float]:
+def _index_pct(day: date, cps: tuple[str, ...], spec: MarketSpec = CN) -> dict[str, float]:
     out: dict[str, float] = {}
     try:
-        mday, pc, bars = tencent.minute_today(INDEX)
+        mday, pc, bars = tencent.minute_today(spec.index)
     except Exception as e:  # noqa: BLE001 - the rule is then reported as unchecked
         log.warning("index minute data unavailable: %s", e)
         return out
     if mday != day or bars.empty or not pc:
         return out
     for hh in cps:
-        b = bars[bars["datetime"].dt.time <= _hhmm(hh)]
+        cut = CLOSE_AUCTION_END[spec.mkt] if hh == spec.close else _hhmm(hh)
+        b = bars[bars["datetime"].dt.time <= cut]
         if not b.empty:
             out[hh] = 100 * (float(b["price"].iloc[-1]) / pc - 1)
     return out
 
 
-def _stock_rows(code: str, q: dict, day: date, cps: tuple[str, ...]) -> list[dict]:
+def _stock_rows(code: str, q: dict, day: date, cps: tuple[str, ...], spec: MarketSpec = CN) -> list[dict]:
     mday, prev_close, bars = tencent.minute_today(code)
     if mday != day or bars.empty or not prev_close:
         return []
@@ -198,17 +227,19 @@ def _stock_rows(code: str, q: dict, day: date, cps: tuple[str, ...]) -> list[dic
     float_shares = q.get("float_shares") or (q["float_mcap"] / q["price"] if q.get("price") else None)
     last_t = reg["datetime"].iloc[-1].time()
     eod_price = float(reg["price"].iloc[-1])
-    complete = last_t >= time(15, 0)
-    per_min_base = avg5 / total_minutes("CN") if avg5 else np.nan
+    complete = last_t >= _hhmm(spec.close) or day < now_bj().date()
+    per_min_base = avg5 / total_minutes(spec.mkt) if avg5 else np.nan
     rows = []
+    session_over = day < now_bj().date() or now_bj().time() >= CLOSE_AUCTION_END[spec.mkt]
     for hh in cps:
         t = _hhmm(hh)
-        if last_t < t:
+        is_close = hh == spec.close
+        if (is_close and not (session_over or last_t >= t)) or (not is_close and last_t < t):
             continue  # session hasn't reached this checkpoint
-        b = reg[reg["datetime"].dt.time <= t]
+        b = reg[reg["datetime"].dt.time <= (CLOSE_AUCTION_END[spec.mkt] if is_close else t)]
         price = float(b["price"].iloc[-1])
         cum_vol, cum_amt = float(b["volume"].sum()), float(b["amount"].sum())
-        elapsed = elapsed_at("CN", hh)
+        elapsed = elapsed_at(spec.mkt, hh)
         trend = trend_features(pd.Series(hist["close"].tolist() + [price]))
         hi, lo = float(b["price"].max()), float(b["price"].min())
         rows.append({
@@ -223,7 +254,7 @@ def _stock_rows(code: str, q: dict, day: date, cps: tuple[str, ...]) -> list[dic
             "from_high": price / hi - 1,
             **trend,
             "prev_volume": float(hist["volume"].iloc[-1]),
-            "projected_volume": cum_vol / (elapsed / total_minutes("CN")),
+            "projected_volume": cum_vol / (elapsed / total_minutes(spec.mkt)),
             "after": (eod_price / price - 1),
             "after_label": "to close" if complete else "to latest",
             "source": "minute data",
@@ -231,7 +262,9 @@ def _stock_rows(code: str, q: dict, day: date, cps: tuple[str, ...]) -> list[dic
     return rows
 
 
-def _captured(day: date, hh: str) -> pd.DataFrame | None:
+def _captured(day: date, hh: str, spec: MarketSpec = CN) -> pd.DataFrame | None:
+    if spec.mkt != "CN":
+        return None  # free HK quotes lag ~15 min: a "15:00" capture really shows ~14:45, so rebuild instead
     path = SNAPSHOT_DIR / day.isoformat() / f"{hh.replace(':', '')}_cn_market.csv"
     if not path.exists():
         return None
@@ -275,7 +308,8 @@ def _captured_rows(cap: pd.DataFrame, p: ScreenParams, day: date, hh: str, codes
 
 # --------------------------------------------------------------------------- rules and score
 
-def apply_rules(df: pd.DataFrame, p: ScreenParams, index_pct: float | None) -> pd.DataFrame:
+def apply_rules(df: pd.DataFrame, p: ScreenParams, index_pct: float | None, spec: MarketSpec = CN,
+                flow_known: bool = True) -> pd.DataFrame:
     d = df.copy()
 
     def between(s, lo, hi):
@@ -294,13 +328,14 @@ def apply_rules(df: pd.DataFrame, p: ScreenParams, index_pct: float | None) -> p
         (d["cross_days_ago"] < max(p.cross_within, 1))
     d["rule_ma_rising"] = (d["ma5"] > d["ma5_prev"]) & (d["ma10"] > d["ma10_prev"])
     d["rule_vol_price"] = (d["pct_change"] > 0) & (d["projected_volume"] > d["prev_volume"])
-    d["rule_inflow"] = d["main_net"] > 0
+    # With no money-flow source at all the rule is skipped (and confidence marked Low), not failed.
+    d["rule_inflow"] = d["main_net"] > 0 if flow_known else True
     d["rule_outperform"] = d["pct_change"] > index_pct if index_pct is not None else False
     d["rule_float_cap"] = between(d["float_mcap"] / 1e9, p.float_mcap_min_bn, p.float_mcap_max_bn)
-    rule_cols = [c for c, _ in rule_labels(p)]
+    rule_cols = [c for c, _ in rule_labels(p, spec)]
     d["rules_met"] = d[rule_cols].fillna(False).astype(int).sum(axis=1)
     d["passes"] = d["rules_met"] == len(rule_cols)
-    labels = dict(rule_labels(p))
+    labels = dict(rule_labels(p, spec))
     d["missed"] = d[rule_cols].apply(lambda r: ", ".join(labels[c] for c in rule_cols if not bool(r[c])), axis=1)
     return d
 
@@ -341,52 +376,59 @@ def score(df: pd.DataFrame, index_pct: float | None) -> pd.DataFrame:
 
 # --------------------------------------------------------------------------- orchestration
 
-def _cache_key(day: date, p: ScreenParams, cps: tuple[str, ...]) -> str:
+def _cache_key(day: date, p: ScreenParams, cps: tuple[str, ...], spec: MarketSpec = CN) -> str:
     h = hashlib.md5(json.dumps(p.to_dict(), sort_keys=True).encode()).hexdigest()[:8]
-    return f"{day.isoformat()}_{'-'.join(c.replace(':', '') for c in cps)}_{h}"
+    prefix = "" if spec.mkt == "CN" else f"{spec.mkt.lower()}_"
+    return f"{prefix}{day.isoformat()}_{'-'.join(c.replace(':', '') for c in cps)}_{h}"
 
 
-def _result_key(day: date, p: ScreenParams, reached: tuple[str, ...]) -> str:
-    return "result_" + _cache_key(day, p, reached)
+def _result_key(day: date, p: ScreenParams, reached: tuple[str, ...], spec: MarketSpec = CN) -> str:
+    return "result_" + _cache_key(day, p, reached, spec)
 
 
-def save_result(res: dict, p: ScreenParams) -> None:
+def save_result(res: dict, p: ScreenParams, spec: MarketSpec = CN) -> None:
     if not res["frames"]:
         return
-    key = _result_key(res["day"], p, tuple(res["frames"]))
+    key = _result_key(res["day"], p, tuple(res["frames"]), spec)
     rows = pd.concat([f.assign(checkpoint=c) for c, f in res["frames"].items()], ignore_index=True)
     storage.save_frame("checkpoints", key, rows)
     storage.save_json("checkpoints", key, {"day": res["day"].isoformat(), "checkpoints": list(res["frames"]),
                                            "index_pct": res["index_pct"], "notes": res["notes"],
-                                           "candidates": res["candidates"]})
+                                           "candidates": res["candidates"],
+                                           "flow_checked": res.get("flow_checked", True)})
 
 
-def load_result(day: date, p: ScreenParams | None = None) -> dict | None:
+def load_result(day: date, p: ScreenParams | None = None, spec: MarketSpec = CN) -> dict | None:
     """A finished result for `day` at every checkpoint reached so far, without touching the market:
     the disk cache, else the bundled sample when it covers that same session."""
     p = p or ScreenParams()
-    reached = tuple(c for c in CHECKPOINTS if checkpoint_reached(day, c))
+    reached = tuple(c for c in spec.checkpoints if checkpoint_reached(day, c))
     if not reached:
         return None
-    key = _result_key(day, p, reached)
+    key = _result_key(day, p, reached, spec)
     meta = storage.load_json("checkpoints", key)
     rows = storage.load_frame("checkpoints", key)
     if meta and rows is not None:
         frames = {c: rows[rows["checkpoint"] == c].reset_index(drop=True) for c in meta["checkpoints"]}
         return {"day": day, "frames": frames, "index_pct": meta["index_pct"], "pending": [],
-                "notes": meta["notes"], "candidates": meta["candidates"], "source": "saved"}
+                "notes": meta["notes"], "candidates": meta["candidates"], "source": "saved",
+                "flow_checked": meta.get("flow_checked", True)}
+    if spec.mkt != "CN":
+        return None
     saved = sample.picks() if sample.available() else None
     if saved and saved["day"] == day and saved["params"] == p.to_dict() and tuple(saved["frames"]) == reached:
         return {**saved, "source": "bundled"}
     return None
 
 
-def evaluate(snap: pd.DataFrame, p: ScreenParams | None = None, cps: tuple[str, ...] = CHECKPOINTS,
-             progress: Callable[[float, str], None] | None = None, use_cache: bool = True) -> dict:
+def evaluate(snap: pd.DataFrame, p: ScreenParams | None = None, cps: tuple[str, ...] | None = None,
+             progress: Callable[[float, str], None] | None = None, use_cache: bool = True,
+             spec: MarketSpec = CN) -> dict:
     """Screen the latest session at each checkpoint. Returns a dict with per-checkpoint frames,
     the index move at each checkpoint, candidate counts and data-quality notes."""
     p = p or ScreenParams()
-    if sample.is_sample():
+    cps = cps or spec.checkpoints
+    if sample.is_sample() and spec.mkt == "CN":
         saved = sample.picks()
         if saved and saved["params"] == p.to_dict() and tuple(saved["frames"]) == cps:
             return saved
@@ -396,21 +438,21 @@ def evaluate(snap: pd.DataFrame, p: ScreenParams | None = None, cps: tuple[str, 
     out = {"day": day, "frames": {}, "index_pct": {}, "pending": pending, "notes": [], "candidates": 0}
     if not reached:
         return out
-    idx = _index_pct(day, reached)
+    idx = _index_pct(day, reached, spec)
     out["index_pct"] = idx
     cands = prefilter(snap, p)
     out["candidates"] = len(cands)
     quotes = {r["code"]: r for r in cands.to_dict("records")}
     codes = list(quotes)
     # A checkpoint's picture is fixed once it has passed, so results are cached as soon as they exist.
-    key = _cache_key(day, p, reached)
+    key = _cache_key(day, p, reached, spec)
     cached = storage.load_frame("checkpoints", key) if use_cache else None
 
     if cached is not None:
         rows = cached
     else:
         recs: list[dict] = []
-        captured = {hh: _captured(day, hh) for hh in reached}
+        captured = {hh: _captured(day, hh, spec) for hh in reached}
         minute_cps = tuple(hh for hh in reached if captured[hh] is None)
         for hh in reached:
             if captured[hh] is not None:
@@ -419,7 +461,8 @@ def evaluate(snap: pd.DataFrame, p: ScreenParams | None = None, cps: tuple[str, 
             step = 40
             for i in range(0, len(codes), step):
                 chunk = codes[i:i + step]
-                for res in http.pmap(lambda c: _stock_rows(c, quotes[c], day, minute_cps), chunk, workers=10):
+                for res in http.pmap(lambda c: _stock_rows(c, quotes[c], day, minute_cps, spec), chunk,
+                                     workers=10):
                     if isinstance(res, list):
                         recs += res
                 if progress:
@@ -427,7 +470,7 @@ def evaluate(snap: pd.DataFrame, p: ScreenParams | None = None, cps: tuple[str, 
                              f"Rebuilding {min(i + step, len(codes))}/{len(codes)} stocks at {', '.join(minute_cps)}")
         rows = pd.DataFrame(recs)
         if not rows.empty:
-            rows = _attach_flow(rows, day)
+            rows = _attach_flow(rows, day, spec)
         if not rows.empty:
             storage.save_frame("checkpoints", key, rows)
 
@@ -437,20 +480,26 @@ def evaluate(snap: pd.DataFrame, p: ScreenParams | None = None, cps: tuple[str, 
     meta = pd.DataFrame([{"code": c, "name": q["name"], "board": q["board"], "is_st": q["is_st"],
                           "eod_pct": q["pct_change"]} for c, q in quotes.items()])
     rows = rows.drop(columns=[c for c in ("name", "board", "is_st", "eod_pct") if c in rows]).merge(meta, on="code")
+    flow_known = bool(rows["main_net"].notna().any())
+    out["flow_checked"] = flow_known
     for hh in reached:
         f = rows[rows["checkpoint"] == hh]
-        f = score(apply_rules(f, p, idx.get(hh)), idx.get(hh))
+        f = score(apply_rules(f, p, idx.get(hh), spec, flow_known), idx.get(hh))
         out["frames"][hh] = f.sort_values(["rules_met", "score"], ascending=False).reset_index(drop=True)
-    if (rows["flow_at"] == "end of day").any():
-        out["notes"].append("Main-fund flow at 14:00 / 14:30 isn't available for this session from your network; "
+    early = " / ".join(spec.checkpoints[:-1])
+    if not flow_known:
+        out["notes"].append("No main-fund flow source is reachable right now, so 'main funds flowing in' was not "
+                            "checked (confidence: low).")
+    elif (rows["flow_at"] == "end of day").any():
+        out["notes"].append(f"Main-fund flow at {early} isn't available for this session from your network; "
                             "the session's end-of-day net inflow is used instead (confidence: medium).")
     if idx == {}:
-        out["notes"].append("CSI 300 minute data unavailable - 'beats the market' could not be checked.")
-    save_result(out, p)
+        out["notes"].append(f"{spec.index_name} minute data unavailable - 'beats the market' could not be checked.")
+    save_result(out, p, spec)
     return out
 
 
-def _attach_flow(rows: pd.DataFrame, day: date) -> pd.DataFrame:
+def _attach_flow(rows: pd.DataFrame, day: date, spec: MarketSpec = CN) -> pd.DataFrame:
     """main_net at the checkpoint: capture value, East Money minute flow, else end-of-day (flagged)."""
     rows = rows.copy()
     rows["main_net"] = rows.get("main_net_at")
@@ -485,7 +534,8 @@ def _attach_flow(rows: pd.DataFrame, day: date) -> pd.DataFrame:
             rows.loc[mask, "main_net"] = rows.loc[mask, "code"].map(m)
             rows.loc[mask, "flow_at"] = "end of day"
             # At 15:00 (the close) an end-of-day flow IS the checkpoint value.
-            at_close = mask & (rows["checkpoint"] == CLOSE) & (day < now_bj().date() or now_bj().hour >= 15)
+            closed = day < now_bj().date() or now_bj().time() >= _hhmm(spec.close)
+            at_close = mask & (rows["checkpoint"] == spec.close) & closed
             rows.loc[at_close, "flow_at"] = "checkpoint"
             # Compare an end-of-day flow with end-of-day value traded.
             amt = realtime.quotes(still).set_index("code")["amount"]
@@ -502,9 +552,9 @@ TIERS = {
 }
 
 
-def close_miss(r: pd.Series, p: ScreenParams) -> bool:
+def close_miss(r: pd.Series, p: ScreenParams, spec: MarketSpec = CN) -> bool:
     """Is the single missed rule only narrowly missed? (A limit-up stock 'misses' +3-5% by a mile.)"""
-    missed = [c for c, _ in rule_labels(p) if not bool(r[c])]
+    missed = [c for c, _ in rule_labels(p, spec) if not bool(r[c])]
     if len(missed) != 1:
         return False
     rule = missed[0]
@@ -529,7 +579,7 @@ def close_miss(r: pd.Series, p: ScreenParams) -> bool:
     return True  # yes/no rules (cross, slopes, volume-price, inflow, beats market)
 
 
-def ranked(result: dict, p: ScreenParams | None = None, top: int = 30) -> pd.DataFrame:
+def ranked(result: dict, p: ScreenParams | None = None, top: int = 30, spec: MarketSpec = CN) -> pd.DataFrame:
     """One ranked list across checkpoints: tier first (persistence = reliability), then score.
 
     A needs every rule at every checkpoint reached (at least two). Tier D holds stocks one rule
@@ -538,7 +588,7 @@ def ranked(result: dict, p: ScreenParams | None = None, top: int = 30) -> pd.Dat
     frames = result["frames"]
     if not frames:
         return pd.DataFrame()
-    cps = [c for c in CHECKPOINTS if c in frames]
+    cps = [c for c in spec.checkpoints if c in frames]
     latest = cps[-1]
     by_cp = {c: frames[c].set_index("code") for c in cps}
     passes = {c: set(by_cp[c].index[by_cp[c]["passes"].astype(bool)]) for c in cps}
@@ -553,7 +603,7 @@ def ranked(result: dict, p: ScreenParams | None = None, top: int = 30) -> pd.Dat
             tier = "B"
         elif passed_at:
             tier = "C"
-        elif code in by_cp[latest].index and close_miss(by_cp[latest].loc[code], p):
+        elif code in by_cp[latest].index and close_miss(by_cp[latest].loc[code], p, spec):
             tier = "D"
         else:
             continue
@@ -570,4 +620,6 @@ def ranked(result: dict, p: ScreenParams | None = None, top: int = 30) -> pd.Dat
     out = out.sort_values(["tier", "score"], ascending=[True, False]).head(top).reset_index(drop=True)
     out.insert(0, "rank", range(1, len(out) + 1))
     out["confidence"] = np.where(out["flow_at"] == "end of day", "Medium", "High")
+    if not result.get("flow_checked", True):
+        out["confidence"] = "Low"
     return out
