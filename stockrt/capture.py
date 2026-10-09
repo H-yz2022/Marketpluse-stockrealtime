@@ -64,6 +64,10 @@ def capture(label: str | None = None, include_flow: bool = True, include_hk: boo
         except Exception as e:  # noqa: BLE001
             log.warning("HK snapshot failed: %s", e)
 
+    if now.hour >= 15:
+        from . import archive
+
+        archive.save_volumes_from_snapshot("CN", cn)  # closing volumes: "yesterday" for tomorrow's auction queries
     if now.hour >= 14:
         # Pre-compute the front page from the capture(s) just written, so it opens instantly.
         try:

@@ -11,12 +11,12 @@ Built for a free hosting plan, where every request to the mainland sources is sl
 """
 
 import dataclasses
-from datetime import date
+from datetime import date, time
 
 import pandas as pd
 import streamlit as st
 
-from stockrt import archive, auction, checkpoint, jobs, prompts, realtime, sample, screener, watchlist
+from stockrt import archive, auction, checkpoint, jobs, opening, prompts, realtime, sample, screener, watchlist
 from stockrt.calendar import now_bj, status
 from stockrt.export import stamp, to_csv_bytes
 from stockrt.symbols import market
@@ -170,6 +170,8 @@ def _compute(mkt: str, P: screener.ScreenParams, day: date, progress, use_cache:
     """Background job body: download the market, rebuild the checkpoints, save (evaluate saves)."""
     snap = realtime.market_snapshot(mkt)
     res = checkpoint.evaluate(snap, P, progress=progress, use_cache=use_cache, spec=checkpoint.SPECS[mkt], day=day)
+    if mkt == "CN" and checkpoint.checkpoint_reached(day, "15:00"):
+        archive.save_volumes_from_snapshot("CN", snap)  # tomorrow's "yesterday" for the auction queries
     del snap
     if not res["frames"]:
         raise RuntimeError("; ".join(res["notes"]) or "no stock could be rebuilt")
@@ -189,7 +191,8 @@ def _job_progress(job: jobs.Job) -> None:
 
 
 def _auction_panel(mkt: str, spec: checkpoint.MarketSpec) -> None:
-    """Pre-open: indicative auction prices, live. After the open: the auction result, on request."""
+    """Pre-open: indicative auction prices, live. After the open: the auction result and research queries,
+    loaded only when opened."""
     s = status(mkt)
     if s.phase == "pre-open":
         @st.fragment(run_every="20s")
@@ -200,12 +203,161 @@ def _auction_panel(mkt: str, spec: checkpoint.MarketSpec) -> None:
             st.subheader("Pre-open auction · 集合竞价", anchor=False)
             st.caption(AUCTION[mkt])
             live()
+            if mkt == "CN":
+                _auction_research(spec)
     elif s.phase in ("morning", "lunch", "afternoon", "closing auction", "closed") and \
             checkpoint.latest_session_day(mkt) == now_bj().date():
-        exp = st.expander("Today's opening auction · 集合竞价 result", icon=":material/gavel:", on_change="rerun")
+        exp = st.expander("Today's opening auction · 集合竞价", icon=":material/gavel:", on_change="rerun")
         if exp.open:
             with exp:
-                _auction_view(mkt, spec, pre_open=False)
+                if mkt == "CN":
+                    view = st.segmented_control(
+                        "View", ["Overview", "Volume ≥ N× yesterday", "Auction screen · 竞价选股"],
+                        default="Overview", key="auction_view", required=True)
+                    if view == "Overview":
+                        _auction_view(mkt, spec, pre_open=False)
+                    else:
+                        _auction_research(spec, view)
+                else:
+                    _auction_view(mkt, spec, pre_open=False)
+
+
+@st.cache_resource
+def auction_volume_memo() -> dict:
+    """Each day's auction volumes per stock (fixed once the auction has matched), shared by every visitor."""
+    return {}
+
+
+def _auction_research(spec: checkpoint.MarketSpec, view: str | None = None) -> None:
+    """The volume-surge query and the 竞价选股 screen (A-shares)."""
+    from ui import cache  # loaded only when these queries are opened
+
+    today = now_bj().date()
+    got = archive.load_volumes("CN", before=today)
+    if got is None:
+        st.info("No volume book for the previous session yet. It is saved automatically after each close, or "
+                "backfill one with `python scripts/build_volume_book.py --date YYYY-MM-DD`.",
+                icon=":material/info:")
+        return
+    yday, book = got
+    from stockrt import tradingdays
+
+    expected = tradingdays.previous_trading_day("CN", today)
+    when = f"{pd.Timestamp(yday):%a %d %b}"
+    if expected and yday != expected:
+        st.warning(f"The newest saved volume book is for {when}, not the previous session "
+                   f"({pd.Timestamp(expected):%a %d %b}). Comparisons use {when}.", icon=":material/warning:")
+    if view is None:  # pre-open: offer both queries in a compact switch
+        view = st.segmented_control("Query", ["Volume ≥ N× yesterday", "Auction screen · 竞价选股"],
+                                    default="Auction screen · 竞价选股", key="auction_query_pre", required=True)
+    snap, t = cache.snapshot("CN")
+    snap = snap[pd.to_datetime(snap["time"]).dt.date == today]
+    if snap.empty:
+        st.caption("No quotes for today yet.")
+        return
+
+    if view.startswith("Volume"):
+        with st.container(horizontal=True, vertical_alignment="bottom"):
+            mult = st.number_input("Volume today at least × yesterday's", min_value=1.0, max_value=100.0, value=5.0,
+                                   step=0.5, key="surge_mult")
+            min_amt = st.number_input("Value traded today ≥ ¥ million", min_value=0.0, value=20.0, step=10.0,
+                                      key="surge_amt", help="Skips illiquid names whose small volumes swing wildly.")
+            ex_st = st.toggle("Exclude ST", value=True, key="surge_st")
+        d = opening.volume_surge(snap, book, mult, min_amt * 1e6, ex_st)
+        st.markdown(f"**{len(d)} stocks** have traded at least {mult:g}× their whole-day volume of {when} "
+                    f"(snapshot {t} Beijing). Early in the session few qualify; the list grows through the day.")
+        cols = ["code", "name", "price", "pct_change", "vol_multiple", "volume", "yday_volume", "amount",
+                "turnover_rate", "float_mcap", "yday_pct"]
+        st.dataframe(style_signed(d[cols], ["pct_change", "yday_pct"]), hide_index=True, column_config={
+            "code": st.column_config.TextColumn("Code"), "name": st.column_config.TextColumn("Name"),
+            "price": st.column_config.NumberColumn("Price", format="%.2f"),
+            "pct_change": st.column_config.NumberColumn("Change", format="%+.2f%%"),
+            "vol_multiple": st.column_config.NumberColumn(f"× {when}", format="%.1f×"),
+            "volume": st.column_config.NumberColumn("Volume today", format="compact"),
+            "yday_volume": st.column_config.NumberColumn(f"Volume {when}", format="compact"),
+            "amount": st.column_config.NumberColumn("Value today", format="compact"),
+            "turnover_rate": st.column_config.NumberColumn("Turnover", format="%.2f%%"),
+            "float_mcap": st.column_config.NumberColumn("Float cap", format="compact"),
+            "yday_pct": st.column_config.NumberColumn(f"Change {when}", format="%+.2f%%")})
+        st.download_button("Volume surge list (CSV)", to_csv_bytes(d[cols]), file_name=f"volume_surge_{today}.csv",
+                           mime="text/csv", on_click="ignore", icon=":material/download:")
+        return
+
+    # ---- 竞价选股 auction screen
+    now_t = now_bj().time()
+    phase = "indicative" if now_t < time(9, 25) else ("result" if now_t < time(9, 30) else "after_open")
+    with st.form("auction_form", border=True):
+        st.markdown("**Auction screen · 竞价选股** - every condition can be switched off (leave a box empty)")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            g_lo = st.number_input("Gap from %", value=2.0, step=0.5, key="a_gap_lo")
+            g_hi = st.number_input("Gap to %", value=7.0, step=0.5, key="a_gap_hi")
+            amt = st.number_input("Auction value ≥ ¥ million", value=10.0, step=5.0, key="a_amt")
+        with c2:
+            vs = st.number_input("Auction volume ≥ % of yesterday", value=5.0, step=1.0, key="a_vs")
+            to = st.number_input("Auction turnover ≥ %", value=0.3, step=0.1, key="a_to")
+            cap_lo = st.number_input("Float cap from ¥ bn", value=3.0, step=1.0, key="a_cap_lo")
+            cap_hi = st.number_input("Float cap to ¥ bn", value=50.0, step=5.0, key="a_cap_hi")
+        with c3:
+            ex_st = st.toggle("Exclude ST", value=True, key="a_st")
+            no_lim = st.toggle("Skip limit-up opens (一字板)", value=True, key="a_lim")
+            y_up = st.toggle("Yesterday closed up", value=False, key="a_yup")
+            y_lim = st.toggle("Yesterday limit-up (接力)", value=False, key="a_ylim")
+            hold = st.toggle("Gap still holding (after 09:30)", value=False, key="a_hold")
+        st.form_submit_button("Run auction screen", icon=":material/filter_alt:", type="primary")
+    p = opening.AuctionParams(exclude_st=ex_st, gap_min=g_lo, gap_max=g_hi, skip_limit_up_open=no_lim,
+                              amount_min_m=amt, vs_yday_min_pct=vs, turnover_min=to, cap_min_bn=cap_lo,
+                              cap_max_bn=cap_hi, yday_up=y_up, yday_limit_up=y_lim, holding=hold)
+    d = opening.auction_frame(snap, book, phase)
+    after_open = phase == "after_open"
+    if after_open:
+        short = d[opening.cheap_mask(d, p)]
+        memo = auction_volume_memo().setdefault(str(today), {})
+        missing = [c for c in short["code"] if c not in memo]
+        if missing:
+            bar = st.progress(0.0, text="Reading auction volumes…")
+            filled = opening.fill_auction_volumes(short[short["code"].isin(missing)], missing,
+                                                  progress=lambda f, m: bar.progress(f, text=m))
+            bar.empty()
+            for r in filled.itertuples():
+                memo[r.code] = (r.auction_volume, r.auction_amount)
+        d = short.copy()
+        d["auction_volume"] = d["code"].map(lambda c: memo.get(c, (None, None))[0])
+        d["auction_amount"] = d["code"].map(lambda c: memo.get(c, (None, None))[1])
+        d = d.astype({"auction_volume": float, "auction_amount": float})
+    res = opening.screen(d, p, after_open)
+    active = opening.active_rules(p, after_open)
+    passed = res[res["passes"]]
+    label = {"indicative": "indicative (auction still running)", "result": "matched auction (09:25)",
+             "after_open": "auction from each stock's 09:30 bar"}[phase]
+    st.markdown(f"**{len(passed)} stocks pass all {len(active)} conditions** · {label} · compared with {when} · "
+                f"snapshot {t} Beijing")
+    show = passed if not passed.empty else res[res["rules_met"] >= len(active) - 1].head(20)
+    if passed.empty:
+        st.caption("Nothing passes every condition - showing stocks one condition short.")
+    cols = ["code", "name", "auction_price", "gap_pct", "auction_amount", "auction_vs_yday", "auction_turnover",
+            "float_mcap", "yday_pct", "price", "pct_change", "rules_met", "missed"]
+    st.dataframe(style_signed(show[cols], ["gap_pct", "yday_pct", "pct_change"]), hide_index=True, column_config={
+        "code": st.column_config.TextColumn("Code"), "name": st.column_config.TextColumn("Name"),
+        "auction_price": st.column_config.NumberColumn("Auction price", format="%.2f"),
+        "gap_pct": st.column_config.NumberColumn("Gap", format="%+.2f%%"),
+        "auction_amount": st.column_config.NumberColumn("Auction value", format="compact"),
+        "auction_vs_yday": st.column_config.NumberColumn(f"Auction vol. % of {when}", format="%.1f%%"),
+        "auction_turnover": st.column_config.NumberColumn("Auction turnover", format="%.2f%%"),
+        "float_mcap": st.column_config.NumberColumn("Float cap", format="compact"),
+        "yday_pct": st.column_config.NumberColumn(f"Change {when}", format="%+.2f%%"),
+        "price": st.column_config.NumberColumn("Price now", format="%.2f"),
+        "pct_change": st.column_config.NumberColumn("Change now", format="%+.2f%%"),
+        "rules_met": st.column_config.NumberColumn("Conditions met", format=f"%d/{len(active)}"),
+        "missed": st.column_config.TextColumn("Missed")})
+    st.download_button("Auction screen (CSV)", to_csv_bytes(show[cols]), file_name=f"auction_screen_{today}.csv",
+                       mime="text/csv", on_click="ignore", icon=":material/download:")
+    with st.expander("Why these conditions", icon=":material/help:"):
+        st.table(pd.DataFrame([{"Condition": lbl, "Why it matters": why} for _, lbl, why in active]),
+                 hide_index=True)
+        st.caption("Research tooling, not investment advice. Auction signals are short-lived: check the first "
+                   "minutes after 09:30 (does the gap hold, does volume follow through) before acting on any of "
+                   "them.")
 
 
 def _auction_view(mkt: str, spec: checkpoint.MarketSpec, pre_open: bool) -> None:
@@ -225,9 +377,12 @@ def _auction_view(mkt: str, spec: checkpoint.MarketSpec, pre_open: bool) -> None
     if not idx.empty:
         i = auction.indicative(idx) if pre_open else auction.opening(idx)
         idx_gap = i["gap_pct"].iloc[0] if not i.empty else None
+        if pre_open and (idx["bid1"].fillna(0).iloc[0] == 0):
+            idx_gap = None  # indices don't print during the auction - their price stays at the previous close
     word = "Indicative" if pre_open else "Opening"
     with st.container(horizontal=True):
-        st.metric(f"{spec.index_name} · {word.lower()} gap", pct(idx_gap, already_pct=True), border=True)
+        st.metric(f"{spec.index_name} · {word.lower()} gap", pct(idx_gap, already_pct=True), border=True,
+                  help="Indices only print once the auction matches (09:25 for A-shares)." if pre_open else None)
         st.metric("Gapping up / down", f"{b.get('up', 0):,} / {b.get('down', 0):,}", border=True)
         st.metric("Median gap", pct(b.get("median"), already_pct=True), border=True)
         st.metric("Gaps of 3% or more", f"↑ {b.get('up_3', 0)} · ↓ {b.get('down_3', 0)}", border=True)
@@ -237,7 +392,7 @@ def _auction_view(mkt: str, spec: checkpoint.MarketSpec, pre_open: bool) -> None
            "indicative": st.column_config.NumberColumn("Indicative", format="%.2f"),
            "open": st.column_config.NumberColumn("Open", format="%.2f"),
            "gap_pct": st.column_config.NumberColumn("Gap", format="%+.2f%%"),
-           "volume": st.column_config.NumberColumn("Matched vol.", format="compact"),
+           "volume": st.column_config.NumberColumn("Volume", format="compact"),
            "time": st.column_config.DatetimeColumn("Quote time", format="HH:mm:ss")}
     wl = [c for c in st.session_state.get("watchlist", []) if market(c) == mkt]
     left, right = st.columns(2)
@@ -252,7 +407,8 @@ def _auction_view(mkt: str, spec: checkpoint.MarketSpec, pre_open: bool) -> None
         up, down = auction.movers(d, 8, min_value=2e9)
         st.markdown("**Biggest gaps** (float cap over 2 bn)")
         st.dataframe(style_signed(pd.concat([up, down])[cols], ["gap_pct"]), hide_index=True, column_config=cfg)
-    st.caption(f"Snapshot taken {t} Beijing; refreshes every 20 s before the open.")
+    note = " Hong Kong pre-open quotes are sparse and about 15 minutes stale." if mkt == "HK" and pre_open else ""
+    st.caption(f"Snapshot taken {t} Beijing" + ("; refreshes every 20 s before the open." if pre_open else ".") + note)
 
 
 def _past_sessions(mkt: str, spec: checkpoint.MarketSpec, P, rules, cp_name, exclude: date | None) -> None:  # noqa: N803
@@ -260,7 +416,7 @@ def _past_sessions(mkt: str, spec: checkpoint.MarketSpec, P, rules, cp_name, exc
     if not exp.open:
         return
     with exp:
-        days = [d for d in archive.sessions(mkt) if d != exclude] if P == screener.ScreenParams() else []
+        days = archive.sessions(mkt) if P == screener.ScreenParams() else []
         if not days:
             st.caption("No earlier sessions saved yet. Each finished session is added to results/ automatically.")
             return

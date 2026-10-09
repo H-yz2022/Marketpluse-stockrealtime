@@ -509,6 +509,8 @@ def evaluate(snap: pd.DataFrame, p: ScreenParams | None = None, cps: tuple[str, 
     save_result(out, p, spec)
     if set(reached) == set(spec.checkpoints) and p == ScreenParams():
         archive.save(out, spec.mkt, p.to_dict())  # a finished session for the "Past sessions" list
+        archive.write_report(out, spec.mkt, ranked(out, p, spec=spec), [lbl for _, lbl in rule_labels(p, spec)],
+                             spec.index_name)
     return out
 
 

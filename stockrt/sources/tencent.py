@@ -32,7 +32,7 @@ QUOTE_COLUMNS = [
     "change", "pct_change", "volume", "amount", "turnover_rate", "volume_ratio",
     "amplitude", "vwap", "pe_ttm", "pb", "div_yield", "float_mcap", "total_mcap",
     "float_shares", "total_shares", "high_52w", "low_52w", "limit_up", "limit_down",
-    "buy_volume", "sell_volume", "bid1", "ask1", "bid_depth", "ask_depth",
+    "buy_volume", "sell_volume", "bid1", "ask1", "bid1_volume", "ask1_volume", "bid_depth", "ask_depth",
     "currency", "time",
 ]
 
@@ -126,7 +126,8 @@ def _parse_quote_raw(key: str, fields: list[str]) -> dict | None:
         "limit_up": limit_up if limit_up and limit_up > 0 else None,
         "limit_down": limit_down if limit_down and limit_down > 0 else None,
         "buy_volume": _f(fields, 7, lot), "sell_volume": _f(fields, 8, lot),
-        "bid1": _f(fields, 9), "ask1": _f(fields, 19), "bid_depth": bid_depth, "ask_depth": ask_depth,
+        "bid1": _f(fields, 9), "ask1": _f(fields, 19), "bid1_volume": _f(fields, 10, lot),
+        "ask1_volume": _f(fields, 20, lot), "bid_depth": bid_depth, "ask_depth": ask_depth,
         "currency": fields[82] if len(fields) > 82 and fields[82] else "CNY",
         "time": _parse_time(fields[30]),
     }
