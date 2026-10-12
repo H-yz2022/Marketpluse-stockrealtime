@@ -6,6 +6,7 @@ The Strategy lab's scorecards (backtest and live record) are in [lab/README.md](
 
 ## A-shares
 
+- [Fri 09 Oct 2026](cn/2026-10-09.md) · checkpoints 14:00, 14:30, 15:00
 - [Thu 08 Oct 2026](cn/2026-10-08.md) · checkpoints 14:00, 14:30, 15:00
 - [Wed 30 Sep 2026](cn/2026-09-30.md) · checkpoints 14:00, 14:30, 15:00
 
