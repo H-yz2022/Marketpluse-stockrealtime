@@ -21,6 +21,8 @@ from .. import http, sample
 from ..symbols import bare, em_secid, from_em_secid, market
 
 PUSH_HOSTS = ["https://82.push2.eastmoney.com", "https://push2.eastmoney.com"]
+# The history host often refuses HTTPS from abroad while plain HTTP answers (public market data, read-only).
+HIS_HOSTS = ["http://push2his.eastmoney.com", "https://push2his.eastmoney.com"]
 HEADERS = {"Referer": "https://quote.eastmoney.com/"}
 
 
@@ -57,6 +59,41 @@ def main_flow_batch(codes: list[str]) -> pd.DataFrame:
                 "source": "eastmoney",
             })
     return pd.DataFrame(rows)
+
+
+def daily_flow(code: str, n: int = 10) -> pd.DataFrame:
+    """Main-fund net inflow per session for the last `n` sessions (main = large + extra-large orders, the
+    same definition as the batch endpoint) - used to backfill a past session.
+
+    Batch use only: it has its own small retry loop instead of the shared circuit breaker, because the
+    history host refuses HTTPS from abroad at times while plain HTTP answers, and a refusal on one must
+    not pause the other."""
+    import time
+
+    import requests
+
+    if sample.is_sample():
+        raise http.SourceUnavailable("network is off: the app is using the built-in sample dataset")
+    params = {"lmt": n, "klt": 101, "secid": em_secid(code), "fields1": "f1,f2,f3,f7",
+              "fields2": "f51,f52,f53,f54,f55,f56"}
+    last: Exception | None = None
+    for attempt in range(2):
+        for host in HIS_HOSTS:
+            try:
+                r = requests.get(host + "/api/qt/stock/fflow/daykline/get", params=params,
+                                 headers=HEADERS | {"User-Agent": http.UA}, timeout=6)
+                klines = (r.json().get("data") or {}).get("klines") or []
+                recs = []
+                for k in klines:
+                    p = k.split(",")
+                    recs.append({"date": pd.Timestamp(p[0]).date(), "main_net": float(p[1]),
+                                 "small_net": float(p[2]), "medium_net": float(p[3]), "large_net": float(p[4]),
+                                 "xl_net": float(p[5])})
+                return pd.DataFrame(recs)
+            except (requests.RequestException, ValueError) as e:
+                last = e
+        time.sleep(0.5 * (attempt + 1))
+    raise http.SourceUnavailable(f"eastmoney daily flow {code}: {last}")
 
 
 @sample.replay("eastmoney.intraday_flow")

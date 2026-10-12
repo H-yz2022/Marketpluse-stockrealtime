@@ -299,11 +299,14 @@ def books_from_frame(frame: pd.DataFrame, day: pd.Timestamp) -> pd.DataFrame:
     return out[out["close"].notna()]
 
 
-def _bse_books(days: list[pd.Timestamp], names: dict[str, str]) -> dict[pd.Timestamp, pd.DataFrame]:
-    """Beijing-exchange stocks have no 30-minute bars: their books come from daily bars."""
+def daily_books(days: list[pd.Timestamp], codes: list[str] | None = None,
+                names: dict[str, str] | None = None, workers: int = 12) -> dict[pd.Timestamp, pd.DataFrame]:
+    """End-of-day volume books from daily bars (one request per stock) - for stocks without 30-minute bars
+    (Beijing) or for a session nobody recorded."""
     u = realtime.universe("CN")
-    codes = [c for c in u["code"] if board(c) == "BSE"]
-    names = names | dict(zip(u["code"], u["name"]))
+    if codes is None:
+        codes = u["code"].tolist()
+    names = (names or {}) | dict(zip(u["code"], u["name"]))
     start = min(days).date() - timedelta(days=15)
 
     def one(code: str) -> pd.DataFrame:
@@ -313,13 +316,19 @@ def _bse_books(days: list[pd.Timestamp], names: dict[str, str]) -> dict[pd.Times
         b = b.assign(code=code, name=names.get(code, code), prev_close=b["close"].shift(1))
         return b[b["date"].isin(days)]
 
-    parts = [r for r in http.pmap(one, codes, workers=12) if isinstance(r, pd.DataFrame) and not r.empty]
+    parts = [r for r in http.pmap(one, codes, workers=workers) if isinstance(r, pd.DataFrame) and not r.empty]
     if not parts:
         return {}
     b = pd.concat(parts, ignore_index=True)
     b["pct_change"] = 100 * (b["close"] / b["prev_close"] - 1)
     b["float_shares"] = b["volume"] / (b["turnover_rate"] / 100)
     return {d: g.drop(columns=["date", "event"]) for d, g in b.groupby("date")}
+
+
+def _bse_books(days: list[pd.Timestamp], names: dict[str, str]) -> dict[pd.Timestamp, pd.DataFrame]:
+    """Beijing-exchange stocks have no 30-minute bars: their books come from daily bars."""
+    u = realtime.universe("CN")
+    return daily_books(days, [c for c in u["code"] if board(c) == "BSE"], names)
 
 
 def write_books(frame: pd.DataFrame, sessions: int = 30, end: date = BACKTEST_END, overwrite: bool = True) -> list:

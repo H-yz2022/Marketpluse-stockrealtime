@@ -195,3 +195,54 @@ def test_missing_money_flow_is_unchecked_not_failed():
     assert bool(d["rule_inflow"].iloc[0]) and d["passes"].iloc[0]
     res = {"frames": {c: checkpoint.score(d, 0.4) for c in HK.checkpoints}, "flow_checked": False}
     assert (checkpoint.ranked(res, p, spec=HK)["confidence"] == "Low").all()
+
+
+def test_backfill_rebuilds_a_past_session(tmp_path, monkeypatch):
+    """A session the feed has moved past: candidates from its volume book, prices from the 5-session
+    minute series, main-fund flow from the daily history; archived like a live session."""
+    from stockrt import archive
+    from stockrt.sources import eastmoney, sina
+
+    monkeypatch.setattr(archive, "RESULTS_DIR", tmp_path)
+    monkeypatch.setattr(checkpoint, "save_result", lambda *a, **k: None)
+    hist = daily_hist(np.r_[np.full(5, 10.0), np.full(5, 9.9)])
+    good, flat = minute_bars([0, 1, 2, 4, 4.2]), minute_bars([0, 0, 0, 0, 0])
+    archive.save_volumes("CN", DAY, pd.DataFrame({
+        "code": ["sh600001", "sh600002"], "name": ["好", "平"], "volume": [241_000.0, 241_000.0],
+        "amount": 2.5e6, "close": [10.42, 10.0], "prev_close": 10.0, "pct_change": [4.2, 0.0],
+        "open": 10.0, "high": [10.45, 10.0], "low": [10.0, 10.0], "turnover_rate": 24.1, "float_shares": 1e6}))
+
+    def five(code):
+        bars = (good if code in ("sh600001", "sh000300") else flat).copy()
+        return bars.assign(date=DAY, prev_close=10.0)
+
+    with patch("stockrt.checkpoint.tencent.minute_5day", side_effect=five), \
+         patch("stockrt.checkpoint.tencent.daily", return_value=hist), \
+         patch.object(eastmoney, "daily_flow", side_effect=lambda c, n=10: pd.DataFrame(
+             {"date": [DAY], "main_net": [5e6]})), \
+         patch.object(sina, "daily_flow", side_effect=AssertionError("East Money answered")):
+        p = ScreenParams(turnover_min=None, turnover_max=None, float_mcap_min_bn=None, float_mcap_max_bn=None,
+                         outperform_market=False)
+        res = checkpoint.backfill(DAY, p)
+    assert res["candidates"] == 1                          # the flat stock never reached +3%
+    f = res["frames"]["14:30"]
+    assert f["code"].tolist() == ["sh600001"] and f["main_net"].iloc[0] == 5e6
+    assert set(f["flow_at"]) == {"end of day"} and set(res["frames"]["15:00"]["flow_at"]) == {"checkpoint"}
+    assert any("Rebuilt afterwards" in n for n in res["notes"])
+
+
+def test_past_flows_falls_back_when_east_money_refuses():
+    from stockrt import http
+    from stockrt.sources import eastmoney, sina
+
+    calls = []
+
+    def refuse(code, n=10):
+        calls.append(code)
+        raise http.SourceUnavailable("blocked")
+
+    with patch.object(eastmoney, "daily_flow", side_effect=refuse), \
+         patch.object(sina, "daily_flow", side_effect=lambda c, n=10: pd.DataFrame({"date": [DAY], "main_net": [1.0]})):
+        flows, src = checkpoint.past_flows([f"sh60000{i}" for i in range(10)], DAY)
+    assert len(calls) == 6                                  # stops trying after 6 refusals in a row
+    assert len(flows) == 10 and set(src.values()) == {"sina"}

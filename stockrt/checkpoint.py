@@ -199,10 +199,24 @@ def prefilter(snap: pd.DataFrame, p: ScreenParams) -> pd.DataFrame:
 
 # --------------------------------------------------------------------------- per-stock reconstruction
 
-def _index_pct(day: date, cps: tuple[str, ...], spec: MarketSpec = CN) -> dict[str, float]:
+def past_minutes(day: date) -> Callable[[str], tuple[date, float | None, pd.DataFrame]]:
+    """A minute source for an earlier session (one of the last five), shaped like tencent.minute_today."""
+
+    def get(code: str) -> tuple[date, float | None, pd.DataFrame]:
+        five = tencent.minute_5day(code)
+        if five.empty or day not in set(five["date"]):
+            return day, None, pd.DataFrame()
+        d = five[five["date"] == day]
+        pc = d["prev_close"].iloc[0]
+        return day, (float(pc) if pd.notna(pc) else None), d.drop(columns=["date", "prev_close"]).reset_index(drop=True)
+
+    return get
+
+
+def _index_pct(day: date, cps: tuple[str, ...], spec: MarketSpec = CN, minutes=None) -> dict[str, float]:
     out: dict[str, float] = {}
     try:
-        mday, pc, bars = tencent.minute_today(spec.index)
+        mday, pc, bars = (minutes or tencent.minute_today)(spec.index)
     except Exception as e:  # noqa: BLE001 - the rule is then reported as unchecked
         log.warning("index minute data unavailable: %s", e)
         return out
@@ -216,8 +230,9 @@ def _index_pct(day: date, cps: tuple[str, ...], spec: MarketSpec = CN) -> dict[s
     return out
 
 
-def _stock_rows(code: str, q: dict, day: date, cps: tuple[str, ...], spec: MarketSpec = CN) -> list[dict]:
-    mday, prev_close, bars = tencent.minute_today(code)
+def _stock_rows(code: str, q: dict, day: date, cps: tuple[str, ...], spec: MarketSpec = CN,
+                minutes=None) -> list[dict]:
+    mday, prev_close, bars = (minutes or tencent.minute_today)(code)
     if mday != day or bars.empty or not prev_close:
         return []
     reg = bars[bars["session"].isin(["AM", "PM"])]
@@ -485,6 +500,12 @@ def evaluate(snap: pd.DataFrame, p: ScreenParams | None = None, cps: tuple[str, 
         if not rows.empty:
             storage.save_frame("checkpoints", key, rows)
 
+    return _assemble(out, rows, quotes, p, idx, reached, spec)
+
+
+def _assemble(out: dict, rows: pd.DataFrame, quotes: dict, p: ScreenParams, idx: dict, reached: tuple[str, ...],
+              spec: MarketSpec) -> dict:
+    """Rules, score and ranking per checkpoint; save, and archive a finished session."""
     if rows.empty:
         out["notes"].append("No stock could be rebuilt for this session.")
         return out
@@ -512,6 +533,132 @@ def evaluate(snap: pd.DataFrame, p: ScreenParams | None = None, cps: tuple[str, 
         archive.write_report(out, spec.mkt, ranked(out, p, spec=spec), [lbl for _, lbl in rule_labels(p, spec)],
                              spec.index_name)
     return out
+
+
+def past_flows(codes: list[str], day: date, progress=None) -> tuple[dict, dict]:
+    """A past session's end-of-day main-fund net inflow per stock.
+
+    East Money's daily history first, one stock at a time (it drops connections under load - and it is the
+    same definition as the live batch endpoint). If it keeps refusing, Sina's history covers the rest
+    (its buckets differ a little; the session's notes say how many came from each)."""
+    from .sources import sina
+
+    flows: dict[str, float] = {}
+    sources: dict[str, str] = {}
+    fails = 0
+    for i, c in enumerate(codes):
+        if fails >= 6:
+            break  # blocked for now: don't spend minutes on timeouts
+        try:
+            res = eastmoney.daily_flow(c, 10)
+            fails = 0
+        except http.SourceUnavailable:
+            fails += 1
+            continue
+        hit = res[res["date"] == day] if not res.empty else res
+        if not hit.empty:
+            flows[c], sources[c] = float(hit["main_net"].iloc[0]), "eastmoney"
+        if progress and i % 20 == 0:
+            progress(i / max(len(codes), 1), f"Main-fund flow {len(flows)}/{len(codes)}")
+    todo = [c for c in codes if c not in flows]
+    for c, res in zip(todo, http.pmap(lambda c: sina.daily_flow(c, 10), todo, workers=4)):
+        if isinstance(res, pd.DataFrame) and not res.empty:
+            hit = res[res["date"] == day]
+            if not hit.empty:
+                flows[c], sources[c] = float(hit["main_net"].iloc[0]), "sina"
+    return flows, sources
+
+
+def backfill(day: date, p: ScreenParams | None = None, spec: MarketSpec = CN,
+             progress: Callable[[float, str], None] | None = None) -> dict:
+    """Rebuild a finished A-share session after the feed has moved on (it must be one of the last five).
+
+    The end-of-day facts that pick the candidates come from that session's volume book
+    (results/cn/volumes/<date>.parquet); prices and volumes at each checkpoint from the 5-session
+    minute series; main-fund flow from East Money's daily history (the session's end-of-day net
+    inflow, flagged as such - exact at the close)."""
+    if spec.mkt != "CN":
+        raise ValueError("backfill is A-shares only (the volume books are A-shares)")
+    p = p or ScreenParams()
+    path = archive.RESULTS_DIR / "cn" / "volumes" / f"{day.isoformat()}.parquet"
+    if not path.exists():
+        raise FileNotFoundError(f"no volume book for {day} - build it with scripts/build_volume_book.py")
+    from .symbols import board, is_st
+
+    b = pd.read_parquet(path)
+    if "float_shares" not in b or b["float_shares"].isna().all():
+        raise ValueError(f"the {day} volume book has no float shares (rebuild it with scripts/strategy_lab.py books)")
+    snap = pd.DataFrame({
+        "code": b["code"], "name": b["name"], "price": b["close"], "prev_close": b["prev_close"],
+        "open": b["open"], "high": b["high"], "low": b["low"], "volume": b["volume"], "amount": b["amount"],
+        "pct_change": b["pct_change"], "turnover_rate": b["turnover_rate"], "float_shares": b["float_shares"],
+        "float_mcap": b["close"] * b["float_shares"], "time": pd.Timestamp(f"{day} 15:00", tz="Asia/Shanghai")})
+    snap["is_st"] = snap["name"].fillna("").map(is_st)
+    snap["board"] = snap["code"].map(board)
+    snap["suspended"] = snap["volume"].fillna(0) <= 0
+    cps = spec.checkpoints
+    minutes = past_minutes(day)
+    out = {"day": day, "frames": {}, "index_pct": {}, "pending": [], "notes": [], "candidates": 0}
+    idx = _index_pct(day, cps, spec, minutes)
+    out["index_pct"] = idx
+    cands = prefilter(snap, p)
+    out["candidates"] = len(cands)
+    quotes = {r["code"]: r for r in cands.to_dict("records")}
+    codes = list(quotes)
+    recs: list[dict] = []
+    step = max(40, WORKERS * 3)
+    for i in range(0, len(codes), step):
+        chunk = codes[i:i + step]
+        for res in http.pmap(lambda c: _stock_rows(c, quotes[c], day, cps, spec, minutes), chunk, workers=WORKERS):
+            if isinstance(res, list):
+                recs += res
+        if progress:
+            progress(min(i + step, len(codes)) / max(len(codes), 1),
+                     f"Rebuilding {min(i + step, len(codes))}/{len(codes)} stocks for {day}")
+    rows = pd.DataFrame(recs)
+    if not rows.empty:
+        flows, sources = past_flows(rows["code"].unique().tolist(), day, progress)
+        rows["main_net"] = rows["code"].map(flows)
+        rows["flow_source"] = rows["code"].map(sources)
+        n_sina = sum(1 for v in sources.values() if v == "sina")
+        missing = rows["main_net"].isna().groupby(rows["code"]).first().sum()
+        if n_sina:
+            out["notes"].append(f"Main-fund flow for {n_sina} stocks is Sina's (East Money's history didn't answer).")
+        if missing:
+            out["notes"].append(f"Main-fund flow unavailable for {int(missing)} stocks: they miss that rule.")
+        rows["flow_at"] = np.where(rows["checkpoint"] == spec.close, "checkpoint", "end of day")
+        rows.loc[rows["main_net"].isna(), "flow_at"] = None
+        rows["amount_for_flow"] = rows["code"].map(dict(zip(b["code"], b["amount"])))
+        rows["main_net"] = pd.to_numeric(rows["main_net"], errors="coerce")
+    out["notes"].append(f"Rebuilt afterwards from {day}'s minute data and end-of-day volume book.")
+    return _assemble(out, rows, quotes, p, idx, cps, spec)
+
+
+def catch_up(lookback: int = 4, progress: Callable[[float, str], None] | None = None) -> list[date]:
+    """Rebuild any of the last `lookback` finished A-share sessions missing from the archive (the minute
+    series only reaches five sessions back). Builds a missing volume book first. Returns the days added."""
+    from . import lab, tradingdays
+
+    days, d = [], now_bj().date()
+    for _ in range(lookback):
+        d = tradingdays.previous_trading_day("CN", d)
+        if d is None:
+            break
+        days.append(d)
+    have = set(archive.sessions("CN"))
+    added = []
+    for day in sorted(x for x in days if x not in have):
+        path = archive.RESULTS_DIR / "cn" / "volumes" / f"{day.isoformat()}.parquet"
+        if not path.exists() or "float_shares" not in pd.read_parquet(path).columns:
+            books = lab.daily_books([pd.Timestamp(day)])
+            if pd.Timestamp(day) not in books:
+                log.warning("catch-up: no daily bars for %s", day)
+                continue
+            archive.save_volumes("CN", day, books[pd.Timestamp(day)])
+        res = backfill(day, progress=progress)
+        if res["frames"]:
+            added.append(day)
+    return added
 
 
 def latest_saved(spec: MarketSpec = CN, p: ScreenParams | None = None, on_or_before: date | None = None) -> dict | None:

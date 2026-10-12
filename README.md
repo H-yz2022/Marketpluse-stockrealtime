@@ -84,8 +84,11 @@ The site is built to stay small on a free 512 MB instance:
 
 **Daily update (GitHub Actions).** `.github/workflows/daily.yml` runs `scripts/daily_update.py` at 16:20 Beijing
 on weekdays: it saves the session's volume book, archives the front page (A-shares and Hong Kong) and records
-the Strategy lab's live picks and exits, then commits `results/`; Render redeploys with them. Run it by hand
-from the repository's **Actions** tab (*Run workflow*) or locally with `python scripts/daily_update.py`.
+the Strategy lab's live picks and exits, then commits `results/`; Render redeploys with them. It also **catches up**: any of the last
+4 sessions missing from the front page's past sessions is rebuilt from the 5-session minute series, that day's
+volume book and East Money's daily main-fund flow history (`python scripts/daily_update.py --backfill YYYY-MM-DD`
+does one by hand). Run the whole job from the repository's **Actions** tab (*Run workflow*) or locally with
+`python scripts/daily_update.py`.
 It needs Actions to be allowed to push (Settings → Actions → General → Workflow permissions → *Read and
 write*, if your account defaults to read-only).
 

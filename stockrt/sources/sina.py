@@ -171,6 +171,14 @@ def money_flow(code: str) -> dict:
     }
 
 
+def daily_flow(code: str, n: int = 10) -> pd.DataFrame:
+    """Main-fund (r0) net inflow per session for the last `n` sessions - a fallback for backfilling a past
+    session when East Money's history is unreachable (Sina's buckets differ a little from East Money's)."""
+    d = _json(API + "MoneyFlow.ssl_qsfx_zjlrqs", {"page": 1, "num": n, "sort": "opendate", "asc": 0, "daima": code})
+    recs = [{"date": pd.Timestamp(r["opendate"]).date(), "main_net": float(r.get("r0_net") or 0)} for r in d or []]
+    return pd.DataFrame(recs)
+
+
 @sample.replay("sina.money_flow_rank")
 def money_flow_rank(workers: int = 4) -> pd.DataFrame:
     """Main-fund net inflow for every A-share and fund (slow: ~65 pages)."""

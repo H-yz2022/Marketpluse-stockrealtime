@@ -1,13 +1,16 @@
 """After the close: archive the session for the website (run by GitHub Actions on weekdays).
 
     python scripts/daily_update.py
+    python scripts/daily_update.py --backfill 2026-10-09     # just rebuild one missed session
 
 1. Saves today's end-of-day volume book (every A-share, from one whole-market snapshot) - "yesterday"
    for tomorrow's auction and volume queries.
 2. Archives the front page (尾盘选股) for A-shares and Hong Kong, so "Past sessions" stays complete.
 3. Updates the Strategy lab: records today's picks for every strategy (with the live-only checks:
    main-fund flow and auction volume) and fills in exit prices of earlier picks.
-4. Keeps the newest 30 volume books (the queries need only the last few).
+4. Rebuilds any of the last 4 sessions missing from the front page's past sessions (a day the job
+   didn't run): the minute series reaches five sessions back.
+5. Keeps the newest 30 volume books (the queries need only the last few).
 
 Everything lands in results/, which the workflow commits; Render redeploys with it. Skips holidays
 and weekends unless --force. Each step is independent: one failing doesn't stop the others.
@@ -20,6 +23,7 @@ import logging
 import sys
 import time
 import traceback
+from datetime import date
 from datetime import time as dtime
 from pathlib import Path
 
@@ -49,8 +53,14 @@ def main() -> int:
     ap.add_argument("--force", action="store_true", help="run on a non-trading day too")
     ap.add_argument("--skip-front-page", action="store_true")
     ap.add_argument("--workers", type=int, default=24)
+    ap.add_argument("--backfill", type=date.fromisoformat, metavar="YYYY-MM-DD",
+                    help="only rebuild this past A-share session for the front page (one of the last five)")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    if args.backfill:
+        res = checkpoint.backfill(args.backfill)
+        print(f"{args.backfill}: checkpoints {list(res['frames'])}; " + " ".join(res["notes"]))
+        return 0 if res["frames"] else 1
     now = now_bj()
     if not args.force and tradingdays.is_trading_day("CN", now.date()) is False:
         print(f"{now:%Y-%m-%d} is not an A-share trading day - nothing to do.")
@@ -76,6 +86,9 @@ def main() -> int:
         if now.time() >= dtime(16, 12):  # Hong Kong's closing auction ends 16:10
             ok &= step("Front page, Hong Kong", front("HK"))
     ok &= step("Strategy lab", lambda: lab.update(workers=args.workers))
+    if not args.skip_front_page:
+        ok &= step("Catch up missed sessions (front page)",
+                   lambda: [str(d) for d in checkpoint.catch_up()] or "none missing")
     ok &= step("Prune old volume books", lambda: f"{len(archive.prune_volumes('CN', keep=30))} removed")
     return 0 if ok else 1
 
