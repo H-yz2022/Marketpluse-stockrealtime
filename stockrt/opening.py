@@ -116,6 +116,38 @@ def volume_surge(snap: pd.DataFrame, book: pd.DataFrame, multiple: float = 5.0, 
     return d.sort_values("vol_multiple", ascending=False).reset_index(drop=True)
 
 
+PRIOR_MODES = {
+    "each": "more than each of the previous {n} sessions (the highest volume in {n1} sessions)",
+    "sum": "more than the previous {n} sessions combined",
+    "avg": "more than the average of the previous {n} sessions",
+}
+
+
+def volume_vs_prior(snap: pd.DataFrame, history: list[tuple], mode: str = "each", frac: float = 1.0,
+                    min_amount: float = 0.0, exclude_st: bool = True) -> pd.DataFrame:
+    """成交量大于前N日成交量: stocks whose volume today beats the previous sessions' volumes.
+
+    history: [(date, book), ...] newest first (stockrt.archive.load_volume_history). With frac < 1 the
+    volume so far is scaled to a full-day pace (projected) before comparing."""
+    n = len(history)
+    vols = pd.concat({d: b.drop_duplicates("code").set_index("code")["volume"] for d, b in history}, axis=1)
+    vols = vols[vols.notna().all(axis=1) & (vols > 0).all(axis=1)]
+    ref = {"each": vols.max(axis=1), "sum": vols.sum(axis=1), "avg": vols.mean(axis=1)}[mode]
+    d = snap[(snap["volume"] > 0) & snap["code"].isin(vols.index)].copy()
+    if exclude_st and "is_st" in d:
+        d = d[~d["is_st"].fillna(False)]
+    d["volume_cmp"] = d["volume"] / max(frac, 1e-6)
+    d["vol_ref"] = d["code"].map(ref)
+    d["vs_ref"] = d["volume_cmp"] / d["vol_ref"]
+    d["vs_avg"] = d["volume_cmp"] / d["code"].map(vols.mean(axis=1))
+    for i, (day, _) in enumerate(history, start=1):
+        d[f"vol_d{i}"] = d["code"].map(vols[day])
+    d = d[(d["vs_ref"] > 1) & (d["amount"].fillna(0) >= min_amount)]
+    d.attrs["days"] = [day for day, _ in history]
+    d.attrs["n"] = n
+    return d.sort_values("vs_ref", ascending=False).reset_index(drop=True)
+
+
 def auction_frame(snap: pd.DataFrame, book: pd.DataFrame, phase: str) -> pd.DataFrame:
     """One row per stock with the auction's price, gap, volume and value.
 

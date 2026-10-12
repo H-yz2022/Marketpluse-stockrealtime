@@ -259,6 +259,36 @@ def minute_ohlc(code: str, period: str = "m1", count: int = 800) -> pd.DataFrame
     return df
 
 
+def bars30(code: str, start: date, count: int = 800) -> pd.DataFrame:
+    """30-minute bars (raw prices) from `start` to now, paging backwards with an end time.
+
+    Tencent keeps about one year of them (A-shares on Shanghai / Shenzhen; none for Beijing). Each
+    session has 8 bars labelled by their end time: 10:00 (includes the opening auction), 10:30, 11:00,
+    11:30, 13:30, 14:00, 14:30 and 15:00 (includes the closing auction). A bar still forming carries
+    the label of its end time."""
+    lot = volume_unit(code)
+    rows: list[list] = []
+    end = ""
+    for _ in range(6):
+        j = http.get(MKLINE_URL, params={"param": f"{code},m30,{end},{count}"}, timeout=20).json()
+        data = j.get("data")
+        page = (data.get(code) or {}).get("m30") or [] if isinstance(data, dict) else []
+        page = [r for r in page if not rows or r[0] < rows[0][0]]
+        if not page:
+            break
+        rows = page + rows
+        first = datetime.strptime(page[0][0], "%Y%m%d%H%M")
+        if first.date() <= start or len(page) < count // 2:
+            break
+        end = page[0][0]
+    df = pd.DataFrame([(r[0], float(r[1]), float(r[2]), float(r[3]), float(r[4]), float(r[5]) * lot) for r in rows],
+                      columns=["datetime", "open", "close", "high", "low", "volume"])
+    if df.empty:
+        return df
+    df["datetime"] = pd.to_datetime(df["datetime"], format="%Y%m%d%H%M")
+    return df[df["datetime"].dt.date >= start].reset_index(drop=True)
+
+
 # --------------------------------------------------------------------------- daily bars
 
 DAILY_COLUMNS = ["date", "open", "high", "low", "close", "volume", "amount", "turnover_rate", "event"]

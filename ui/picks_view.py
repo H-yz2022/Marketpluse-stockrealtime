@@ -205,21 +205,26 @@ def _auction_panel(mkt: str, spec: checkpoint.MarketSpec) -> None:
             live()
             if mkt == "CN":
                 _auction_research(spec)
+    elif mkt == "CN":
+        day = checkpoint.latest_session_day(mkt)
+        when = "today" if day == now_bj().date() else f"{pd.Timestamp(day):%a %d %b}"
+        exp = st.expander(f"Opening auction & volume queries · 集合竞价 / 成交量 · {when}", icon=":material/gavel:",
+                          on_change="rerun")
+        if exp.open:
+            with exp:
+                view = st.segmented_control(
+                    "View", ["Overview", VOL_MULT, VOL_PRIOR, "Auction screen · 竞价选股"],
+                    default="Overview", key="auction_view", required=True)
+                if view == "Overview":
+                    _auction_view(mkt, spec, pre_open=False)
+                else:
+                    _auction_research(spec, view, day)
     elif s.phase in ("morning", "lunch", "afternoon", "closing auction", "closed") and \
             checkpoint.latest_session_day(mkt) == now_bj().date():
         exp = st.expander("Today's opening auction · 集合竞价", icon=":material/gavel:", on_change="rerun")
         if exp.open:
             with exp:
-                if mkt == "CN":
-                    view = st.segmented_control(
-                        "View", ["Overview", "Volume ≥ N× yesterday", "Auction screen · 竞价选股"],
-                        default="Overview", key="auction_view", required=True)
-                    if view == "Overview":
-                        _auction_view(mkt, spec, pre_open=False)
-                    else:
-                        _auction_research(spec, view)
-                else:
-                    _auction_view(mkt, spec, pre_open=False)
+                _auction_view(mkt, spec, pre_open=False)
 
 
 @st.cache_resource
@@ -228,11 +233,18 @@ def auction_volume_memo() -> dict:
     return {}
 
 
-def _auction_research(spec: checkpoint.MarketSpec, view: str | None = None) -> None:
-    """The volume-surge query and the 竞价选股 screen (A-shares)."""
+VOL_MULT = "Volume ≥ N× yesterday"
+VOL_PRIOR = "Volume > previous 4 days · 成交量大于前4日"
+
+
+def _auction_research(spec: checkpoint.MarketSpec, view: str | None = None, day: date | None = None) -> None:
+    """The volume queries and the 竞价选股 screen (A-shares) for one session (default: today)."""
     from ui import cache  # loaded only when these queries are opened
 
-    today = now_bj().date()
+    today = day or now_bj().date()
+    if view == VOL_PRIOR:
+        _volume_prior(today)
+        return
     got = archive.load_volumes("CN", before=today)
     if got is None:
         st.info("No volume book for the previous session yet. It is saved automatically after each close, or "
@@ -248,7 +260,7 @@ def _auction_research(spec: checkpoint.MarketSpec, view: str | None = None) -> N
         st.warning(f"The newest saved volume book is for {when}, not the previous session "
                    f"({pd.Timestamp(expected):%a %d %b}). Comparisons use {when}.", icon=":material/warning:")
     if view is None:  # pre-open: offer both queries in a compact switch
-        view = st.segmented_control("Query", ["Volume ≥ N× yesterday", "Auction screen · 竞价选股"],
+        view = st.segmented_control("Query", [VOL_MULT, "Auction screen · 竞价选股"],
                                     default="Auction screen · 竞价选股", key="auction_query_pre", required=True)
     snap, t = cache.snapshot("CN")
     snap = snap[pd.to_datetime(snap["time"]).dt.date == today]
@@ -286,6 +298,8 @@ def _auction_research(spec: checkpoint.MarketSpec, view: str | None = None) -> N
     # ---- 竞价选股 auction screen
     now_t = now_bj().time()
     phase = "indicative" if now_t < time(9, 25) else ("result" if now_t < time(9, 30) else "after_open")
+    if today != now_bj().date():
+        phase = "after_open"
     with st.form("auction_form", border=True):
         st.markdown("**Auction screen · 竞价选股** - every condition can be switched off (leave a box empty)")
         c1, c2, c3 = st.columns(3)
@@ -358,6 +372,66 @@ def _auction_research(spec: checkpoint.MarketSpec, view: str | None = None) -> N
         st.caption("Research tooling, not investment advice. Auction signals are short-lived: check the first "
                    "minutes after 09:30 (does the gap hold, does volume follow through) before acting on any of "
                    "them.")
+
+
+def _volume_prior(day: date) -> None:
+    """列出成交量大于前4日成交量的股票 - against the saved end-of-day volume books."""
+    from ui import cache
+
+    hist = archive.load_volume_history("CN", before=day, n=4)
+    if len(hist) < 4:
+        st.info(f"This needs the volume books of the 4 sessions before {pd.Timestamp(day):%a %d %b}; "
+                f"{len(hist)} are saved. They are written after each close (and by the daily update), or backfill "
+                "with `python scripts/strategy_lab.py books`.", icon=":material/info:")
+        return
+    snap, t = cache.snapshot("CN")
+    snap = snap[pd.to_datetime(snap["time"]).dt.date == day]
+    if snap.empty:
+        st.caption("No quotes for this session yet.")
+        return
+    s = status("CN")
+    in_session = day == now_bj().date() and s.phase in ("morning", "lunch", "afternoon")
+    labels = {k: v.format(n=4, n1=5) for k, v in opening.PRIOR_MODES.items()}
+    with st.container(horizontal=True, vertical_alignment="bottom"):
+        mode = st.selectbox("Volume today is", list(labels), format_func=lambda k: labels[k], key="prior_mode",
+                            help="成交量大于前4日成交量. The default reads it as above each of the 4 days, i.e. the "
+                                 "highest volume of the last 5 sessions; the other readings compare with their total "
+                                 "or average.")
+        proj = st.toggle("Full-day pace", value=False, key="prior_proj", disabled=not in_session,
+                         help="During the session, scale today's volume so far to a full day (volume ÷ share of "
+                              "the session elapsed) before comparing. Off: the volume actually traded so far.")
+        min_amt = st.number_input("Value traded today ≥ ¥ million", min_value=0.0, value=20.0, step=10.0,
+                                  key="prior_amt")
+        ex_st = st.toggle("Exclude ST", value=True, key="prior_st")
+    frac = s.fraction if (proj and in_session) else 1.0
+    d = opening.volume_vs_prior(snap, hist, mode, frac, min_amt * 1e6, ex_st)
+    days = [pd.Timestamp(x) for x, _ in hist]
+    span = ", ".join(f"{x:%d %b}" for x in days)
+    st.markdown(f"**{len(d)} stocks** traded {labels[mode]} ({span}) · snapshot {t} Beijing"
+                + (" · today's volume at full-day pace" if frac < 1 else ""))
+    if in_session and frac == 1.0:
+        st.caption("The session is still running: these stocks have already beaten the earlier sessions with the "
+                   "volume traded so far. Switch on full-day pace to include stocks on track to beat them.")
+    cols = ["code", "name", "price", "pct_change", "vs_ref", "vs_avg", "volume", "vol_d1", "vol_d2", "vol_d3",
+            "vol_d4", "amount", "turnover_rate", "float_mcap"]
+    ref_name = {"each": "× 4-day max", "sum": "× 4-day total", "avg": "× 4-day avg"}[mode]
+    cfg = {"code": st.column_config.TextColumn("Code"), "name": st.column_config.TextColumn("Name"),
+           "price": st.column_config.NumberColumn("Price", format="%.2f"),
+           "pct_change": st.column_config.NumberColumn("Change", format="%+.2f%%"),
+           "vs_ref": st.column_config.NumberColumn(ref_name, format="%.2f×"),
+           "vs_avg": st.column_config.NumberColumn("× 4-day avg", format="%.2f×"),
+           "volume": st.column_config.NumberColumn("Volume today", format="compact"),
+           "amount": st.column_config.NumberColumn("Value today", format="compact"),
+           "turnover_rate": st.column_config.NumberColumn("Turnover", format="%.2f%%"),
+           "float_mcap": st.column_config.NumberColumn("Float cap", format="compact")}
+    for i, x in enumerate(days, start=1):
+        cfg[f"vol_d{i}"] = st.column_config.NumberColumn(f"Vol {x:%d %b}", format="compact")
+    if mode == "avg":
+        cols.remove("vs_avg")
+    st.dataframe(style_signed(d[cols], ["pct_change"]), hide_index=True, column_config=cfg)
+    st.download_button("Volume vs previous 4 days (CSV)", to_csv_bytes(d[cols]),
+                       file_name=f"volume_vs_4days_{day}.csv", mime="text/csv", on_click="ignore",
+                       icon=":material/download:")
 
 
 def _auction_view(mkt: str, spec: checkpoint.MarketSpec, pre_open: bool) -> None:

@@ -90,7 +90,8 @@ def write_index() -> Path:
     lines = ["# Archived sessions", "",
              "Every finished 尾盘选股 session, kept as static files: `<date>.md` (readable here on GitHub), "
              "`<date>.csv` (ranked list) and `<date>.parquet` + `.json` (everything the app needs). "
-             "`volumes/` holds each session's closing volumes for the opening-auction queries.", ""]
+             "`volumes/` holds each session's closing volumes for the opening-auction queries.", "",
+             "The Strategy lab's scorecards (backtest and live record) are in [lab/README.md](lab/README.md).", ""]
     for mkt in ("CN", "HK"):
         days = sessions(mkt)
         if not days:
@@ -133,7 +134,8 @@ def sessions(mkt: str) -> list[date]:
 
 # --------------------------------------------------------------------------- end-of-day volume book
 
-VOLUME_COLUMNS = ["code", "name", "volume", "amount", "close", "prev_close", "pct_change"]
+VOLUME_COLUMNS = ["code", "name", "volume", "amount", "close", "prev_close", "pct_change", "open", "high", "low",
+                  "turnover_rate", "float_shares"]
 
 
 def save_volumes(mkt: str, day: date, book: pd.DataFrame) -> Path | None:
@@ -158,6 +160,22 @@ def load_volumes(mkt: str, before: date) -> tuple[date, pd.DataFrame] | None:
         return None
     path = RESULTS_DIR / mkt.lower() / "volumes" / f"{days[0].isoformat()}.parquet"
     return days[0], pd.read_parquet(path)
+
+
+def prune_volumes(mkt: str, keep: int = 30) -> list[Path]:
+    """Keep the newest `keep` volume books (the queries need at most the last few; this keeps the repo small)."""
+    removed = []
+    for d in volume_days(mkt)[keep:]:
+        path = RESULTS_DIR / mkt.lower() / "volumes" / f"{d.isoformat()}.parquet"
+        path.unlink(missing_ok=True)
+        removed.append(path)
+    return removed
+
+
+def load_volume_history(mkt: str, before: date, n: int = 4) -> list[tuple[date, pd.DataFrame]]:
+    """The `n` newest volume books strictly before `before`, newest first."""
+    days = [d for d in volume_days(mkt) if d < before][:n]
+    return [(d, pd.read_parquet(RESULTS_DIR / mkt.lower() / "volumes" / f"{d.isoformat()}.parquet")) for d in days]
 
 
 def save_volumes_from_snapshot(mkt: str, snap: pd.DataFrame) -> Path | None:

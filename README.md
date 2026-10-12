@@ -12,7 +12,8 @@ the live data and exact column definitions, for use with whichever assistant you
 
 | Page | What it does |
 |---|---|
-| **尾盘选股 · Late-session picks** *(front page)* | The late-session query, answered: non-ST, +3–5%, volume ratio > 1, turnover 3–8%, MA5 crossing above MA10, rising MAs, volume and price up, main funds in, beating the CSI 300, float cap ¥5–20B. It shows the latest session **as it stood at 14:00, 14:30 and the 15:00 close** (rebuilt from minute data, or from a real capture when one exists) and gives one ranked list. A checkpoint that hasn't come yet says why and when, e.g. "Not yet - the market closes at 15:00 Beijing (in 41 min)". On a holiday it names the holiday and the reopening day. **Tier** comes first, for reliability (A = every rule at every checkpoint), then a 0–100 **signal score**. A confidence flag and a hindsight "14:00 → close" column sit alongside. The page is **never empty**: the newest saved session shows instantly, and a checkpoint that still needs computing is rebuilt by a background job, then swapped in automatically. **Past sessions** are kept in a collapsed section that loads on demand. Before the open, a **pre-open auction (集合竞价)** panel shows indicative prices and gaps. After the open, **Today's opening auction** (collapsed) offers an overview, **Volume ≥ N× yesterday** (your 5× query, whole market, against the previous session's closing volumes) and a **竞价选股 auction screen**: gap 2–7%, not a limit-up open, auction value ≥ ¥10M, auction volume ≥ 5% of yesterday's, auction turnover ≥ 0.3%, float cap ¥3–50B, plus optional yesterday-up, yesterday limit-up (接力) and gap-holding filters, each with the reason it matters. |
+| **尾盘选股 · Late-session picks** *(front page)* | The late-session query, answered: non-ST, +3–5%, volume ratio > 1, turnover 3–8%, MA5 crossing above MA10, rising MAs, volume and price up, main funds in, beating the CSI 300, float cap ¥5–20B. It shows the latest session **as it stood at 14:00, 14:30 and the 15:00 close** (rebuilt from minute data, or from a real capture when one exists) and gives one ranked list. A checkpoint that hasn't come yet says why and when, e.g. "Not yet - the market closes at 15:00 Beijing (in 41 min)". On a holiday it names the holiday and the reopening day. **Tier** comes first, for reliability (A = every rule at every checkpoint), then a 0–100 **signal score**. A confidence flag and a hindsight "14:00 → close" column sit alongside. The page is **never empty**: the newest saved session shows instantly, and a checkpoint that still needs computing is rebuilt by a background job, then swapped in automatically. **Past sessions** are kept in a collapsed section that loads on demand. Before the open, a **pre-open auction (集合竞价)** panel shows indicative prices and gaps. After the open, **Opening auction & volume queries** (collapsed; on weekends and holidays it shows the latest session) offers an overview, **Volume ≥ N× yesterday** (your 5× query, whole market, against the previous session's closing volumes), **Volume > previous 4 days · 成交量大于前4日** (above each of the 4 previous sessions by default, or their total / average, optionally at full-day pace) and a **竞价选股 auction screen**: gap 2–7%, not a limit-up open, auction value ≥ ¥10M, auction volume ≥ 5% of yesterday's, auction turnover ≥ 0.3%, float cap ¥3–50B, plus optional yesterday-up, yesterday limit-up (接力) and gap-holding filters, each with the reason it matters. |
+| **Strategy lab · 策略实验室** | Seven A-share strategies with rules fixed before testing: 尾盘选股 at 14:30 and 14:00, 竞价选股 (opening gap), 高开不破 (gap holding at 10:00), 首板 (first limit-up), 早盘放量突破 (morning breakout) and 超跌反弹 (oversold bounce). Each is judged by its **excess return after costs over buying every stock at the same moment** (equal-weight market; CSI 300 and CSI 1000 also shown), its t-statistic, how many random pickers it beats, and its consistency over time. One year of **backtest** rebuilt from 30-minute bars, a **live record** from 12 Oct 2026 written after each close, and **today's signals in real time** as each signal time passes. Also: China's overnight-vs-daytime return, CSI 300 intraday momentum and 短线情绪 (yesterday's limit-ups, 炸板率). Static copy: [results/lab/README.md](results/lab/README.md); method: [docs/STRATEGY_RESEARCH.md](docs/STRATEGY_RESEARCH.md). |
 | **Live dashboard** | One stock: latest price, daily / 1-month / period return, volatility, max drawdown, P/E, rule-based sentiment. Intraday chart with VWAP and the lunch break removed, session statistics (morning vs afternoon, VWAP, volume ratio, turnover, main-fund flow, active buying), daily chart, and announcements with links to the page and PDF. Auto-refreshes every 30 s while trading. |
 | **Intraday at 14:00** | Watchlist statistics and an overlay chart up to a cut-off (11:30 / 13:30 / 14:00 / 14:30 / close). One-click **capture of the whole market** at that moment, plus auto-capture at chosen Beijing times while the app runs. |
 | **尾盘选股 · Hong Kong (live test)** | The same screen run live on Hong Kong stocks at **15:00, 15:30 and the 16:00 close** (the same last-hour pattern; HK closes an hour later), against the Hang Seng Index, with market value in HKD. It exercises the whole pipeline on live data and doubles as a pre-test before the A-share checkpoints. A switch offers **HK-adapted turnover (0.5–8%)**, because HK turnover rates are far below mainland ones. HK main-fund flow comes only from East Money; when that is unreachable the rule is shown as unchecked (confidence Low). |
@@ -81,6 +82,13 @@ The site is built to stay small on a free 512 MB instance:
   150 MB for the front page alone, about 250 MB after visiting four more pages.
 - Caches are capped, and a closed browser tab's session is freed after 60 s.
 
+**Daily update (GitHub Actions).** `.github/workflows/daily.yml` runs `scripts/daily_update.py` at 16:20 Beijing
+on weekdays: it saves the session's volume book, archives the front page (A-shares and Hong Kong) and records
+the Strategy lab's live picks and exits, then commits `results/`; Render redeploys with them. Run it by hand
+from the repository's **Actions** tab (*Run workflow*) or locally with `python scripts/daily_update.py`.
+It needs Actions to be allowed to push (Settings → Actions → General → Workflow permissions → *Read and
+write*, if your account defaults to read-only).
+
 `STOCKRT_WORKERS` sets how many requests run in parallel (24 on Render, where each request to the mainland
 sources is slow). Set `STOCKRT_DATA_MODE=sample` for a fully offline demo, and `STOCKRT_LOCK_MODE=1` to hide the
 live/sample switch from visitors. Streamlit Community Cloud also works: point it at
@@ -108,6 +116,19 @@ python scripts/download_daily.py --all-cn --start 2026-01-01
 python scripts/capture_snapshot.py
 ```
 
+```bash
+python scripts/strategy_lab.py fetch
+```
+
+```bash
+python scripts/strategy_lab.py backtest
+```
+
+`strategy_lab.py fetch` downloads one year of 30-minute and daily bars for every Shanghai / Shenzhen stock
+(~20 minutes, kept in `data/lab/`); `backtest` scores every strategy and writes `results/lab/`; `books` writes
+end-of-day volume books for recent sessions; `validate --date YYYY-MM-DD` compares the 14:30 rebuild with an
+archived front-page session; `update` records new live sessions.
+
 `capture_snapshot.py` saves every A-share quote (with main-fund flow), every HK quote and the
 watchlist's 1-minute bars to `data/snapshots/<date>/`. From 14:00 onwards it also pre-computes the
 front page from those real values, so the site opens instantly. It skips weekends and holidays
@@ -130,7 +151,7 @@ python -m pytest -q
 python -m ruff check .
 ```
 
-The 52 tests run offline: parsers are checked against recorded real responses, the adjustment
+The tests run offline: parsers are checked against recorded real responses, the adjustment
 math against known ex-dividend days, and every page is rendered against the sample dataset.
 GitHub Actions runs them on each push.
 
@@ -149,11 +170,15 @@ stockrt/              UI-agnostic data layer (reusable behind FastAPI later)
   intraday.py         minute data and session statistics
   analytics.py        returns and risk metrics
   screener.py         rule engine and presets
+  labdata.py          Strategy lab: per-stock sessions at each signal time, from 30-minute bars
+  strategies.py       the lab's strategies (fixed rules) and short-term sentiment
+  lab.py              backtest, live record, scorecards, today's signals
   sentiment.py        rule-based sentiment
   etfs.py             ETF scorecard
   sample.py           offline replay of every provider from sample_data/
   export.py, query.py, prompts.py, capture.py, selftest.py
-scripts/              download_daily.py, capture_snapshot.py, build_sample.py
+scripts/              download_daily.py, capture_snapshot.py, build_sample.py, strategy_lab.py,
+                      daily_update.py, build_volume_book.py
 sample_data/          built-in offline dataset (see sample_data/README.md)
 tests/                offline tests + recorded fixtures
 docs/DATA_SOURCES.md  endpoint map, quirks, verification

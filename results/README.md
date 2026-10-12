@@ -2,6 +2,8 @@
 
 Every finished 尾盘选股 session, kept as static files: `<date>.md` (readable here on GitHub), `<date>.csv` (ranked list) and `<date>.parquet` + `.json` (everything the app needs). `volumes/` holds each session's closing volumes for the opening-auction queries.
 
+The Strategy lab's scorecards (backtest and live record) are in [lab/README.md](lab/README.md).
+
 ## A-shares
 
 - [Thu 08 Oct 2026](cn/2026-10-08.md) · checkpoints 14:00, 14:30, 15:00

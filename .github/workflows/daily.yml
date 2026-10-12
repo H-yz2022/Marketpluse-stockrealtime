@@ -1,0 +1,45 @@
+name: Daily update
+
+# After the A-share and Hong Kong closes (16:20 Beijing = 08:20 UTC), on weekdays: archive the
+# front page, save the volume book and update the Strategy lab's live record, then commit results/
+# so the website (Render redeploys on push) shows them. Holidays are skipped by the script.
+on:
+  schedule:
+    - cron: "20 8 * * 1-5"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Update results
+        env:
+          STOCKRT_WORKERS: "24"
+        run: python scripts/daily_update.py
+      - name: Commit results
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add results
+          if git diff --cached --quiet; then
+            echo "Nothing new to commit."
+          else
+            git commit -m "Daily update $(TZ=Asia/Shanghai date +%Y-%m-%d)"
+            git push
+          fi
