@@ -7,7 +7,7 @@ import os
 
 import streamlit as st
 
-from stockrt import sample, watchlist
+from stockrt import published, sample, watchlist
 from stockrt.calendar import now_bj, status
 from stockrt.config import DEFAULT_RISK_FREE
 
@@ -16,6 +16,9 @@ st.set_page_config(
     page_icon=":material/candlestick_chart:",
     layout="wide",
 )
+
+# Results the daily job publishes after each close (checked at most once a minute; no-op offline).
+published.sync()
 
 # Settings shared by every page.
 st.session_state.setdefault("up_red", True)

@@ -69,8 +69,8 @@ the limit but skips stocks sealed at the limit since the open (一字板).
 ## 5. Live monitoring (built)
 
 - **Today · 实时信号** on the Strategy lab page: each strategy's picks as soon as its signal time passes (the 09:25 auction is read from 09:31), with the move since the signal. It is computed in the background from a shortlist (a few hundred stocks), about a minute.
-- **Live record:** after each close, `scripts/daily_update.py` (GitHub Actions, 16:20 Beijing on weekdays) records every strategy's picks with all rules, including main-fund flow and auction volume. It fills in exit prices as they happen and commits `results/lab/`. Picks are never changed after they are recorded.
-- **Scorecards:** backtest and live side by side, for any exit and benchmark, live with all rules or only the backtestable ones (like for like). Static copy: `results/lab/README.md`.
+- **Live record:** after each close, `scripts/daily_update.py` (GitHub Actions, from 15:05 Beijing on weekdays) records every strategy's picks with all rules, including main-fund flow and auction volume. It fills in exit prices as they happen and publishes `lab/` on the repository's `results` branch. Picks are never changed after they are recorded.
+- **Scorecards:** backtest and live side by side, for any exit and benchmark, live with all rules or only the backtestable ones (like for like). Static copy: `lab/README.md` on the `results` branch.
 
 ## 6. First results: backtest 13 Oct 2025 – 9 Oct 2026
 

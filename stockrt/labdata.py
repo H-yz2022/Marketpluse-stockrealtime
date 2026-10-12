@@ -168,24 +168,50 @@ def index_calendar(first_day: date, asof: datetime | None = None) -> list[pd.Tim
     return [pd.Timestamp(d) for d in days]
 
 
+class IncompleteData(RuntimeError):
+    """Too few stocks could be downloaded to score a session fairly (the benchmark is the whole market)."""
+
+
 def build(codes: list[str], names: dict[str, str], first_day: date, asof: datetime | None = None,
           progress: Callable[[float, str], None] | None = None, workers: int = 16,
-          bar_count: int = 800) -> tuple[pd.DataFrame, dict[str, pd.DataFrame], list[pd.Timestamp]]:
-    """Frames for many stocks (and the two benchmark indices) from `first_day` on."""
+          bar_count: int = 800, min_coverage: float = 0.0,
+          ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame], list[pd.Timestamp]]:
+    """Frames for many stocks (and the two benchmark indices) from `first_day` on.
+
+    Stocks whose download failed (throttling, a paused endpoint) are retried in later passes after a
+    pause. With `min_coverage`, raise IncompleteData if fewer than that share of `codes` came through -
+    a session scored on part of the market would be wrong, so it is better to fail and retry later."""
+    import time as _time
+
     cal = index_calendar(first_day, asof)
     idx = {c: fetch(c, n, first_day, cal, asof, bar_count) for c, n in INDEXES.items()}
-    parts: list[pd.DataFrame] = []
+    parts: dict[str, pd.DataFrame] = {}
+    empty: set[str] = set()                   # answered, but no bars in the window (suspended, delisted)
     step = 200
-    for i in range(0, len(codes), step):
-        chunk = codes[i:i + step]
-        for r in http.pmap(lambda c: fetch(c, names.get(c, c), first_day, cal, asof, bar_count), chunk,
-                           workers=workers):
-            if isinstance(r, pd.DataFrame) and not r.empty:
-                parts.append(r)
-        if progress:
-            progress(min(i + step, len(codes)) / max(len(codes), 1),
-                     f"30-minute and daily bars {min(i + step, len(codes)):,}/{len(codes):,}")
-    frame = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=KEEP)
+    for attempt in range(4):
+        todo = [c for c in codes if c not in parts and c not in empty]
+        if not todo:
+            break
+        if attempt:
+            _time.sleep(15 * attempt)
+            http.reset_breakers()
+        for i in range(0, len(todo), step):
+            chunk = todo[i:i + step]
+            for c, r in zip(chunk, http.pmap(lambda c: fetch(c, names.get(c, c), first_day, cal, asof, bar_count),
+                                             chunk, workers=workers)):
+                if isinstance(r, pd.DataFrame):
+                    if r.empty:
+                        empty.add(c)
+                    else:
+                        parts[c] = r
+            if progress:
+                done = len(parts) + len(empty)
+                tag = f" (retry {attempt})" if attempt else ""
+                progress(min(done / max(len(codes), 1), 1.0), f"30-minute and daily bars {done:,}/{len(codes):,}{tag}")
+    got = (len(parts) + len(empty)) / max(len(codes), 1)
+    if got < min_coverage:
+        raise IncompleteData(f"only {got:.0%} of {len(codes):,} stocks downloaded (need {min_coverage:.0%})")
+    frame = pd.concat(parts.values(), ignore_index=True) if parts else pd.DataFrame(columns=KEEP)
     return frame, idx, cal
 
 

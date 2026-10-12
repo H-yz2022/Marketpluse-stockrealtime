@@ -5,5 +5,7 @@
  "stocks": 5123,
  "generated": "2026-10-12 10:57",
  "round_trip_cost": 0.00202,
- "live_start": "2026-10-12"
+ "live_start": "2026-10-12",
+ "live_updated": "2026-10-13 00:46",
+ "exits_checked_through": "2026-10-12"
 }

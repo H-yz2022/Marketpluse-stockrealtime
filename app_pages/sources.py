@@ -106,3 +106,12 @@ with st.container(horizontal=True):
         st.cache_data.clear()
         st.toast("Daily cache deleted")
 st.caption(f"Cache: {CACHE_DIR} · Captures: {SNAPSHOT_DIR}")
+
+from stockrt import archive, published  # noqa: E402
+
+pub = published.sync()
+man = published.manifest()
+st.markdown("**Published results** · computed once after each close by the daily update (GitHub Actions)")
+st.caption(f"Repository: {published.repo() or '—'} · branch `{published.BRANCH}` · in use: {pub.get('source')} · "
+           f"published {man.get('updated', '—')} · sessions {', '.join(man.get('sessions', {}).get('CN', [])) or '—'}"
+           + (f" · last check: {pub['error']}" if pub.get("error") else "") + f" · folder: {archive.RESULTS_DIR}")

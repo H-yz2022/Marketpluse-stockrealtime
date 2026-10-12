@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from stockrt import checkpoint, lab, sample
+from stockrt import checkpoint, lab, published, sample
 from stockrt.calendar import now_bj, status
 from stockrt.export import to_csv_bytes
 from stockrt.labdata import EXIT_LABEL, EXITS
@@ -21,7 +21,7 @@ P = st.column_config
 
 
 def _mtime() -> float:
-    f = lab.LAB_DIR / "meta.json"
+    f = lab.lab_dir() / "meta.json"
     return f.stat().st_mtime if f.exists() else 0.0
 
 
@@ -135,8 +135,10 @@ def _today_panel() -> None:
         st.caption("The first signal (09:25 auction) is read from 09:31 Beijing.")
         return
     recorded = D["live"][D["live"]["day"] == pd.Timestamp(day)] if not D["live"].empty else pd.DataFrame()
-    if not recorded.empty and not live_day:
-        st.caption(f"Signals of **{pd.Timestamp(day):%a %d %b}**, as recorded in the live log.")
+    over = not live_day or s.phase == "closed"
+    if not recorded.empty and over:
+        st.caption(f"Signals of **{pd.Timestamp(day):%a %d %b}**, as recorded in the live log after the close "
+                   "(fixed).")
         _show_today(recorded, {}, day, None)
         return
     times = [t for t in lab.SIGNAL_ORDER if not live_day or lab.reached(t, now)]
@@ -145,6 +147,25 @@ def _today_panel() -> None:
         return
     key = ("lab_today", str(day), tuple(times))
     memo = today_memo()
+    if over and published.await_close("CN", day):
+        # Closed: the daily update records today's signals once; show what was computed during the session.
+        st.info("The market has closed. Today's signals are recorded once by the daily update (about 15:10 "
+                "Beijing) and then shown here, fixed; this panel picks them up by itself.",
+                icon=":material/lock_clock:")
+
+        @st.fragment(run_every="60s")
+        def poll() -> None:
+            published.sync()
+            if lab.recorded(day):
+                st.rerun()
+
+        poll()
+        earlier = [k for k in memo if k[:2] == key[:2]]
+        if earlier:
+            res = memo[max(earlier, key=lambda k: len(k[2]))]
+            st.caption(f"Provisional, computed during the session at {res['computed']} Beijing:")
+            _show_today(res["picks"], res["pending"], day, res)
+        return
     if key not in memo:
         def run(progress) -> None:
             from stockrt import realtime
@@ -251,7 +272,9 @@ with tab_perf:
         if not D["live"].empty else pd.DataFrame()
     if not lv_d.empty and not bt_d.empty:
         lv_d["cum_excess"] = lv_d["excess"].cumsum() + bt_d["cum_excess"].iloc[-1]
-    both = pd.concat([bt_d, lv_d], ignore_index=True)
+    both = pd.concat([x for x in (bt_d, lv_d) if not x.empty], ignore_index=True)         if not (bt_d.empty and lv_d.empty) else bt_d
+    if not both.empty:
+        both["day"] = pd.to_datetime(both["day"])
     if both.empty:
         st.caption("No signals.")
     else:
@@ -292,7 +315,10 @@ with tab_perf:
                              "Beat market": mm.get("beat"), "t": mm.get("t"), "vs random": mm.get("placebo"),
                              "Sub-periods +": mm.get("thirds"), "Max drawdown": mm.get("max_dd"),
                              "Verdict": mm["verdict"]})
-        st.dataframe(pd.DataFrame(rows), hide_index=True, column_config={
+        tbl = pd.DataFrame(rows)
+        for c in tbl.columns.drop(["Period", "Sell at", "Verdict"]):
+            tbl[c] = pd.to_numeric(tbl[c], errors="coerce")
+        st.dataframe(tbl, hide_index=True, column_config={
             c: P.NumberColumn(c, format="percent") for c in ("Avg return", "Avg excess", "Median excess", "Win rate",
                                                             "Beat market", "vs random", "Max drawdown")}
             | {"t": P.NumberColumn("t", format="%.1f")})

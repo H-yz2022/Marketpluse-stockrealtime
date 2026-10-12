@@ -16,7 +16,19 @@ from datetime import date, time
 import pandas as pd
 import streamlit as st
 
-from stockrt import archive, auction, checkpoint, jobs, opening, prompts, realtime, sample, screener, watchlist
+from stockrt import (
+    archive,
+    auction,
+    checkpoint,
+    jobs,
+    opening,
+    prompts,
+    published,
+    realtime,
+    sample,
+    screener,
+    watchlist,
+)
 from stockrt.calendar import now_bj, status
 from stockrt.export import stamp, to_csv_bytes
 from stockrt.symbols import market
@@ -124,7 +136,13 @@ def render(mkt: str) -> None:
                               help="Rebuild from the market data again, ignoring saved results (runs in the "
                                    "background).")
         job = None
-        if reached and (res is None or recompute):
+        # After today's close the daily job computes the session once and publishes it: wait for that
+        # (fixed figures, no recomputing per visit) unless it is overdue or the rules are customised.
+        wait = res is None and not recompute and reached and P == screener.ScreenParams() and \
+            published.await_close(mkt, day)
+        if wait:
+            _await_publish(mkt, day)
+        elif reached and (res is None or recompute):
             key = (mkt, str(day), reached, repr(sorted(P.to_dict().items(), key=str)))
             job = job_runner().submit(key, lambda progress: _compute(mkt, P, day, progress, not recompute),
                                       force=recompute)
@@ -175,6 +193,21 @@ def _compute(mkt: str, P: screener.ScreenParams, day: date, progress, use_cache:
     del snap
     if not res["frames"]:
         raise RuntimeError("; ".join(res["notes"]) or "no stock could be rebuilt")
+
+
+def _await_publish(mkt: str, day: date) -> None:
+    when = "about 15:10" if mkt == "CN" else "about 16:20"
+    st.info(f"The market has closed. Today's final list is computed once by the daily update ({when} Beijing) "
+            "and then shown here as fixed figures; this page picks it up by itself. Meanwhile, the latest saved "
+            "result:", icon=":material/lock_clock:")
+
+    @st.fragment(run_every="60s")
+    def poll() -> None:
+        published.sync()
+        if day in archive.sessions(mkt):
+            st.rerun()
+
+    poll()
 
 
 def _job_progress(job: jobs.Job) -> None:

@@ -1,19 +1,26 @@
-"""After the close: archive the session for the website (run by GitHub Actions on weekdays).
+"""After the close: compute, save and publish the session (run by GitHub Actions on weekdays).
 
-    python scripts/daily_update.py
-    python scripts/daily_update.py --backfill 2026-10-09     # just rebuild one missed session
+    python scripts/daily_update.py                       # what the scheduled job runs
+    python scripts/daily_update.py --backfill 2026-10-09  # just rebuild one missed session
 
-1. Saves today's end-of-day volume book (every A-share, from one whole-market snapshot) - "yesterday"
-   for tomorrow's auction and volume queries.
-2. Archives the front page (尾盘选股) for A-shares and Hong Kong, so "Past sessions" stays complete.
-3. Updates the Strategy lab: records today's picks for every strategy (with the live-only checks:
-   main-fund flow and auction volume) and fills in exit prices of earlier picks.
-4. Rebuilds any of the last 4 sessions missing from the front page's past sessions (a day the job
-   didn't run): the minute series reaches five sessions back.
-5. Keeps the newest 30 volume books (the queries need only the last few).
+Every step checks what is already saved, so running it twice is harmless and fast. The workflow runs
+it several times each afternoon (GitHub sometimes skips a scheduled run); whichever run comes first
+does the work.
 
-Everything lands in results/, which the workflow commits; Render redeploys with it. Skips holidays
-and weekends unless --force. Each step is independent: one failing doesn't stop the others.
+1. Volume book: every A-share's closing volume, from one whole-market snapshot - "yesterday" for the
+   next session's auction and volume queries.
+2. Front page (尾盘选股): today's A-share session at 14:00 / 14:30 / 15:00, and Hong Kong's once it
+   has closed (16:10 Beijing).
+3. Strategy lab: today's picks for every strategy, with the live-only checks (main-fund flow, auction
+   volume), and the exits of earlier picks.
+4. Catch-up: any of the last 4 sessions missing from the front page is rebuilt (the minute series
+   reaches five sessions back); a session rebuilt with Sina's money flow is redone once East
+   Money answers again.
+5. Rolling window: only the newest 4 sessions and 5 volume books are kept, so the data never piles up
+   (the Strategy lab's log is kept whole: it is the test itself, and grows by a few MB a year).
+6. manifest.json, which tells the website that new results are published.
+
+Each step is independent: one failing doesn't stop the others (the exit code reports it).
 """
 
 from __future__ import annotations
@@ -29,10 +36,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from stockrt import archive, checkpoint, lab, realtime, tradingdays  # noqa: E402
+from stockrt import archive, checkpoint, lab, realtime  # noqa: E402
 from stockrt.calendar import now_bj  # noqa: E402
-
-log = logging.getLogger("daily_update")
 
 
 def step(name: str, fn) -> bool:
@@ -50,8 +55,7 @@ def step(name: str, fn) -> bool:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--force", action="store_true", help="run on a non-trading day too")
-    ap.add_argument("--skip-front-page", action="store_true")
+    ap.add_argument("--force", action="store_true", help="run even before today's close")
     ap.add_argument("--workers", type=int, default=24)
     ap.add_argument("--backfill", type=date.fromisoformat, metavar="YYYY-MM-DD",
                     help="only rebuild this past A-share session for the front page (one of the last five)")
@@ -62,34 +66,38 @@ def main() -> int:
         print(f"{args.backfill}: checkpoints {list(res['frames'])}; " + " ".join(res["notes"]))
         return 0 if res["frames"] else 1
     now = now_bj()
-    if not args.force and tradingdays.is_trading_day("CN", now.date()) is False:
-        print(f"{now:%Y-%m-%d} is not an A-share trading day - nothing to do.")
+    session = checkpoint.latest_session_day("CN")
+    if not args.force and session == now.date() and now.time() < dtime(15, 2):
+        print(f"{now:%Y-%m-%d %H:%M} Beijing: today's A-share session hasn't closed yet - nothing to do.")
         return 0
     ok = True
     snap = {}
 
-    def book():
-        snap["cn"] = realtime.market_snapshot("CN")
-        return archive.save_volumes_from_snapshot("CN", snap["cn"]) or "already saved"
+    def cn_snapshot():
+        if "cn" not in snap:
+            snap["cn"] = realtime.market_snapshot("CN")
+        return snap["cn"]
 
-    ok &= step("Volume book", book)
-    if not args.skip_front_page:
-        def front(mkt):
-            def run():
-                s = snap.get(mkt.lower()) if mkt == "CN" else None
-                s = s if s is not None else realtime.market_snapshot(mkt)
-                res = checkpoint.evaluate(s, spec=checkpoint.SPECS[mkt])
-                return f"{res['day']} checkpoints {list(res['frames'])}"
-            return run
+    ok &= step("Volume book", lambda: archive.save_volumes_from_snapshot("CN", cn_snapshot()) or "already saved")
 
-        ok &= step("Front page, A-shares", front("CN"))
-        if now.time() >= dtime(16, 12):  # Hong Kong's closing auction ends 16:10
-            ok &= step("Front page, Hong Kong", front("HK"))
+    def front(mkt: str):
+        spec = checkpoint.SPECS[mkt]
+        s = cn_snapshot() if mkt == "CN" else realtime.market_snapshot(mkt)
+        day = checkpoint.session_day(s)
+        if day in archive.sessions(mkt):
+            return f"{day} already saved"
+        res = checkpoint.evaluate(s, spec=spec)
+        return f"{res['day']} checkpoints {list(res['frames'])}"
+
+    ok &= step("Front page, A-shares", lambda: front("CN"))
+    hk_session = checkpoint.latest_session_day("HK")
+    if hk_session < now.date() or now.time() >= dtime(16, 12):  # Hong Kong's closing auction ends 16:10
+        ok &= step("Front page, Hong Kong", lambda: front("HK"))
     ok &= step("Strategy lab", lambda: lab.update(workers=args.workers))
-    if not args.skip_front_page:
-        ok &= step("Catch up missed sessions (front page)",
-                   lambda: [str(d) for d in checkpoint.catch_up()] or "none missing")
-    ok &= step("Prune old volume books", lambda: f"{len(archive.prune_volumes('CN', keep=30))} removed")
+    ok &= step("Catch up missed sessions", lambda: [str(d) for d in checkpoint.catch_up()] or "none missing")
+    ok &= step("Rolling window", lambda: f"{len(archive.prune_sessions('CN')) + len(archive.prune_sessions('HK'))} "
+                                         f"session files and {len(archive.prune_volumes('CN'))} volume books removed")
+    ok &= step("Manifest", lambda: archive.write_manifest(now_bj()))
     return 0 if ok else 1
 
 

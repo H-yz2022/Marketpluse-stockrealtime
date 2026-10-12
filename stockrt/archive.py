@@ -90,7 +90,8 @@ def write_index() -> Path:
     lines = ["# Archived sessions", "",
              "Every finished 尾盘选股 session, kept as static files: `<date>.md` (readable here on GitHub), "
              "`<date>.csv` (ranked list) and `<date>.parquet` + `.json` (everything the app needs). "
-             "`volumes/` holds each session's closing volumes for the opening-auction queries.", "",
+             "`volumes/` holds each session's closing volumes for the opening-auction queries. Only the newest "
+             f"{KEEP_SESSIONS} sessions and {KEEP_BOOKS} volume books are kept: the daily job drops older ones.", "",
              "The Strategy lab's scorecards (backtest and live record) are in [lab/README.md](lab/README.md).", ""]
     for mkt in ("CN", "HK"):
         days = sessions(mkt)
@@ -162,8 +163,37 @@ def load_volumes(mkt: str, before: date) -> tuple[date, pd.DataFrame] | None:
     return days[0], pd.read_parquet(path)
 
 
-def prune_volumes(mkt: str, keep: int = 30) -> list[Path]:
-    """Keep the newest `keep` volume books (the queries need at most the last few; this keeps the repo small)."""
+KEEP_SESSIONS = 4   # front-page sessions kept (the newest; the daily job prunes the rest)
+KEEP_BOOKS = 5      # volume books kept: "yesterday", the 4-day query, and 超跌反弹's 5-session return
+
+
+def prune_sessions(mkt: str, keep: int = KEEP_SESSIONS) -> list[Path]:
+    """Keep the newest `keep` archived sessions of a market (a rolling window: the data never piles up)."""
+    removed = []
+    for d in sessions(mkt)[keep:]:
+        for ext in (".parquet", ".json", ".md", ".csv"):
+            path = _base(mkt, d).with_suffix(ext)
+            if path.exists():
+                path.unlink()
+                removed.append(path)
+    if removed:
+        write_index()
+    return removed
+
+
+def write_manifest(now) -> Path:
+    """results/manifest.json: what is published, and when - the website checks it to pick up new results."""
+    path = RESULTS_DIR / "manifest.json"
+    path.write_text(json.dumps({
+        "updated": now.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "sessions": {m: [d.isoformat() for d in sessions(m)] for m in ("CN", "HK")},
+        "volume_books": [d.isoformat() for d in volume_days("CN")],
+    }, indent=1), encoding="utf-8")
+    return path
+
+
+def prune_volumes(mkt: str, keep: int = KEEP_BOOKS) -> list[Path]:
+    """Keep the newest `keep` volume books (all the queries need)."""
     removed = []
     for d in volume_days(mkt)[keep:]:
         path = RESULTS_DIR / mkt.lower() / "volumes" / f"{d.isoformat()}.parquet"

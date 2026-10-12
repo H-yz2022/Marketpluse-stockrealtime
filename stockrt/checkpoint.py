@@ -646,8 +646,9 @@ def catch_up(lookback: int = 4, progress: Callable[[float, str], None] | None = 
             break
         days.append(d)
     have = set(archive.sessions("CN"))
+    redo = [x for x in days if x in have and _sina_flows(x) and _east_money_answers()]
     added = []
-    for day in sorted(x for x in days if x not in have):
+    for day in sorted([x for x in days if x not in have] + redo):
         path = archive.RESULTS_DIR / "cn" / "volumes" / f"{day.isoformat()}.parquet"
         if not path.exists() or "float_shares" not in pd.read_parquet(path).columns:
             books = lab.daily_books([pd.Timestamp(day)])
@@ -659,6 +660,22 @@ def catch_up(lookback: int = 4, progress: Callable[[float, str], None] | None = 
         if res["frames"]:
             added.append(day)
     return added
+
+
+def _sina_flows(day: date) -> bool:
+    """Was this archived session rebuilt with Sina's flow because East Money refused? (Redo it when it answers.)"""
+    f = archive.RESULTS_DIR / "cn" / f"{day.isoformat()}.json"
+    try:
+        return any("is Sina's" in n for n in json.loads(f.read_text(encoding="utf-8")).get("notes", []))
+    except (OSError, ValueError):
+        return False
+
+
+def _east_money_answers() -> bool:
+    try:
+        return not eastmoney.daily_flow("sz000001", 2).empty
+    except http.SourceUnavailable:
+        return False
 
 
 def latest_saved(spec: MarketSpec = CN, p: ScreenParams | None = None, on_or_before: date | None = None) -> dict | None:

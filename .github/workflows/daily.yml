@@ -1,11 +1,19 @@
 name: Daily update
 
-# After the A-share and Hong Kong closes (16:20 Beijing = 08:20 UTC), on weekdays: archive the
-# front page, save the volume book and update the Strategy lab's live record, then commit results/
-# so the website (Render redeploys on push) shows them. Holidays are skipped by the script.
+# After each close, compute the session once and publish it for the website:
+#   front page (尾盘选股, A-shares and Hong Kong), volume books, Strategy lab live record.
+# The results go to the `results` branch as ONE commit that replaces the previous one, so nothing
+# piles up in the repository's history and `main` (your code) is never touched. The website reads
+# that branch, so it shows fixed figures after the close without recomputing or redeploying.
+#
+# Several start times: GitHub sometimes skips or delays a scheduled run. Every step checks what is
+# already saved, so a later run that finds the work done finishes in a minute.
 on:
   schedule:
-    - cron: "20 8 * * 1-5"
+    - cron: "5 7 * * 1-5"    # 15:05 Beijing - A-shares closed
+    - cron: "40 7 * * 1-5"   # 15:40 Beijing - retry
+    - cron: "15 8 * * 1-5"   # 16:15 Beijing - Hong Kong closed
+    - cron: "30 9 * * 1-5"   # 17:30 Beijing - retry
   workflow_dispatch: {}
 
 permissions:
@@ -27,19 +35,30 @@ jobs:
           cache: "pip"
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Update results
+      - name: Start from the published results
+        run: |
+          if git fetch --depth=1 -q origin results 2>/dev/null; then
+            rm -rf results && mkdir results
+            git archive FETCH_HEAD | tar -x -C results
+            echo "Starting from the published results branch."
+          else
+            echo "No results branch yet: starting from the copy in main."
+          fi
+      - name: Update
         env:
           STOCKRT_WORKERS: "24"
+          STOCKRT_PUBLISHED: "0"
         run: python scripts/daily_update.py
-      - name: Commit results
+      - name: Publish to the results branch (one commit, replaced each time)
         if: always()
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          cd results
+          git init -q -b results
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add results
-          if git diff --cached --quiet; then
-            echo "Nothing new to commit."
-          else
-            git commit -m "Daily update $(TZ=Asia/Shanghai date +%Y-%m-%d)"
-            git push
-          fi
+          git add -A
+          git commit -q -m "Results published $(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M') Beijing"
+          git push -f -q "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" results
+          echo "Published: https://github.com/${GITHUB_REPOSITORY}/tree/results"

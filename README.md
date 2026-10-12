@@ -13,7 +13,7 @@ the live data and exact column definitions, for use with whichever assistant you
 | Page | What it does |
 |---|---|
 | **尾盘选股 · Late-session picks** *(front page)* | The late-session query, answered: non-ST, +3–5%, volume ratio > 1, turnover 3–8%, MA5 crossing above MA10, rising MAs, volume and price up, main funds in, beating the CSI 300, float cap ¥5–20B. It shows the latest session **as it stood at 14:00, 14:30 and the 15:00 close** (rebuilt from minute data, or from a real capture when one exists) and gives one ranked list. A checkpoint that hasn't come yet says why and when, e.g. "Not yet - the market closes at 15:00 Beijing (in 41 min)". On a holiday it names the holiday and the reopening day. **Tier** comes first, for reliability (A = every rule at every checkpoint), then a 0–100 **signal score**. A confidence flag and a hindsight "14:00 → close" column sit alongside. The page is **never empty**: the newest saved session shows instantly, and a checkpoint that still needs computing is rebuilt by a background job, then swapped in automatically. **Past sessions** are kept in a collapsed section that loads on demand. Before the open, a **pre-open auction (集合竞价)** panel shows indicative prices and gaps. After the open, **Opening auction & volume queries** (collapsed; on weekends and holidays it shows the latest session) offers an overview, **Volume ≥ N× yesterday** (your 5× query, whole market, against the previous session's closing volumes), **Volume > previous 4 days · 成交量大于前4日** (above each of the 4 previous sessions by default, or their total / average, optionally at full-day pace) and a **竞价选股 auction screen**: gap 2–7%, not a limit-up open, auction value ≥ ¥10M, auction volume ≥ 5% of yesterday's, auction turnover ≥ 0.3%, float cap ¥3–50B, plus optional yesterday-up, yesterday limit-up (接力) and gap-holding filters, each with the reason it matters. |
-| **Strategy lab · 策略实验室** | Seven A-share strategies with rules fixed before testing: 尾盘选股 at 14:30 and 14:00, 竞价选股 (opening gap), 高开不破 (gap holding at 10:00), 首板 (first limit-up), 早盘放量突破 (morning breakout) and 超跌反弹 (oversold bounce). Each is judged by its **excess return after costs over buying every stock at the same moment** (equal-weight market; CSI 300 and CSI 1000 also shown), its t-statistic, how many random pickers it beats, and its consistency over time. One year of **backtest** rebuilt from 30-minute bars, a **live record** from 12 Oct 2026 written after each close, and **today's signals in real time** as each signal time passes. Also: China's overnight-vs-daytime return, CSI 300 intraday momentum and 短线情绪 (yesterday's limit-ups, 炸板率). Static copy: [results/lab/README.md](results/lab/README.md); method: [docs/STRATEGY_RESEARCH.md](docs/STRATEGY_RESEARCH.md). |
+| **Strategy lab · 策略实验室** | Eight A-share strategy variants with rules fixed before testing: 尾盘选股 at 14:30 and 14:00, 竞价选股 (opening gap), 高开不破 (gap holding at 10:00), 首板 (first limit-up, with an optimistic and a pessimistic fill), 早盘放量突破 (morning breakout) and 超跌反弹 (oversold bounce). Each is judged by its **excess return after costs over buying every stock at the same moment** (equal-weight market; CSI 300 and CSI 1000 also shown), its t-statistic, how many random pickers it beats, and its consistency over time. One year of **backtest** rebuilt from 30-minute bars, a **live record** from 12 Oct 2026 written after each close, and **today's signals in real time** as each signal time passes. Also: China's overnight-vs-daytime return, CSI 300 intraday momentum and 短线情绪 (yesterday's limit-ups, 炸板率). Static copy: `lab/README.md` on the repository's `results` branch; method: [docs/STRATEGY_RESEARCH.md](docs/STRATEGY_RESEARCH.md). |
 | **Live dashboard** | One stock: latest price, daily / 1-month / period return, volatility, max drawdown, P/E, rule-based sentiment. Intraday chart with VWAP and the lunch break removed, session statistics (morning vs afternoon, VWAP, volume ratio, turnover, main-fund flow, active buying), daily chart, and announcements with links to the page and PDF. Auto-refreshes every 30 s while trading. |
 | **Intraday at 14:00** | Watchlist statistics and an overlay chart up to a cut-off (11:30 / 13:30 / 14:00 / 14:30 / close). One-click **capture of the whole market** at that moment, plus auto-capture at chosen Beijing times while the app runs. |
 | **尾盘选股 · Hong Kong (live test)** | The same screen run live on Hong Kong stocks at **15:00, 15:30 and the 16:00 close** (the same last-hour pattern; HK closes an hour later), against the Hang Seng Index, with market value in HKD. It exercises the whole pipeline on live data and doubles as a pre-test before the A-share checkpoints. A switch offers **HK-adapted turnover (0.5–8%)**, because HK turnover rates are far below mainland ones. HK main-fund flow comes only from East Money; when that is unreachable the rule is shown as unchecked (confidence Low). |
@@ -64,14 +64,33 @@ Push to GitHub, then on [Render](https://render.com) choose **New → Blueprint*
 `render.yaml` starts the app on the free plan with **live data**, so the front page is real time while
 the market trades.
 
-Finished sessions are archived as static files in `results/`: `<date>.md` (a readable page that GitHub
-renders, listed in [results/README.md](results/README.md)), `<date>.csv` (the ranked list), and `<date>.parquet` +
-`.json` (what the app loads, about 150 KB each). `results/cn/volumes/<date>.parquet` holds each session's closing
-volumes, which serve as "yesterday" for the opening-auction queries. They are saved automatically from any
-whole-market snapshot taken after the close; to backfill a missed session, run
-`python scripts/build_volume_book.py --date YYYY-MM-DD`. These files ship with the code. A fresh or restarted free-tier server, whose disk starts empty, therefore opens on real past
-sessions immediately. New sessions are archived automatically wherever they are computed. Commit them
-(`git add results`) and push to keep the deployed site's history complete.
+**A trading day runs by itself** (Beijing time):
+
+| When | What happens | Who does it |
+|---|---|---|
+| Before 09:15 | The front page and the Strategy lab show the last session's saved results | website, nothing computed |
+| 09:15–09:30 | Pre-open auction (集合竞价): indicative prices, gaps and the auction screen, live | website |
+| 09:30–15:00 | Real time: the auction and volume queries, the Strategy lab's signals as each signal time passes, the 尾盘选股 checkpoints at 14:00 and 14:30 | website, computed in the background |
+| 15:05 (16:15 for Hong Kong) | The session is computed **once**: front page at 14:00 / 14:30 / 15:00, volume book, Strategy lab live record | GitHub Actions (`.github/workflows/daily.yml`) |
+| After that | Fixed figures, shown instantly; nothing is recomputed | website |
+| Weekends and holidays | The last session's saved results | website |
+
+**Where the results live.** The daily job publishes `results/` to the repository's **`results` branch** as a
+single commit that replaces the previous one. The repository's history doesn't grow, and `main` (the code) is
+never touched. The website reads that branch through `stockrt/published.py`: it checks the branch's
+`manifest.json` at most once a minute and downloads it when it changes. A free-tier server that restarts
+with an empty disk is back on the published results in a second, without redeploying. Only the newest **4
+sessions** (A-shares and Hong Kong) and **5 volume books** are kept; the daily job drops older ones. The
+Strategy lab's live log is kept whole: it is the test itself, and grows by a few MB a year. Readable
+copies: `README.md`, `cn/<date>.md` and `lab/README.md` on the `results` branch.
+
+**If GitHub is late.** The job runs at 15:05, 15:40, 16:15 and 17:30 Beijing, because GitHub sometimes skips or delays a
+scheduled run. Whichever run comes first does the work; the others find it done and finish in a minute. If
+nothing is published by 16:10 (17:10 for Hong Kong), the website computes the close itself. Missed sessions
+are caught up: any of the last 4 sessions missing from the front page is rebuilt from the 5-session minute
+series. A session rebuilt with Sina's money flow (East Money refused) is redone automatically once East Money
+answers again. By hand, if ever needed: the **Actions** tab → *Daily update* → *Run workflow*, or
+`python scripts/daily_update.py` (`--backfill YYYY-MM-DD` rebuilds one session).
 
 The site is built to stay small on a free 512 MB instance:
 
@@ -82,15 +101,8 @@ The site is built to stay small on a free 512 MB instance:
   150 MB for the front page alone, about 250 MB after visiting four more pages.
 - Caches are capped, and a closed browser tab's session is freed after 60 s.
 
-**Daily update (GitHub Actions).** `.github/workflows/daily.yml` runs `scripts/daily_update.py` at 16:20 Beijing
-on weekdays: it saves the session's volume book, archives the front page (A-shares and Hong Kong) and records
-the Strategy lab's live picks and exits, then commits `results/`; Render redeploys with them. It also **catches up**: any of the last
-4 sessions missing from the front page's past sessions is rebuilt from the 5-session minute series, that day's
-volume book and East Money's daily main-fund flow history (`python scripts/daily_update.py --backfill YYYY-MM-DD`
-does one by hand). Run the whole job from the repository's **Actions** tab (*Run workflow*) or locally with
-`python scripts/daily_update.py`.
-It needs Actions to be allowed to push (Settings → Actions → General → Workflow permissions → *Read and
-write*, if your account defaults to read-only).
+The daily job needs permission to push its branch: Settings → Actions → General → Workflow permissions →
+*Read and write* (if your account defaults to read-only).
 
 `STOCKRT_WORKERS` sets how many requests run in parallel (24 on Render, where each request to the mainland
 sources is slow). Set `STOCKRT_DATA_MODE=sample` for a fully offline demo, and `STOCKRT_LOCK_MODE=1` to hide the

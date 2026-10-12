@@ -17,5 +17,7 @@ services:
         value: "0"           # "1" hides the live-data switch so public visitors stay on the sample
       - key: STOCKRT_WORKERS
         value: "24"          # more parallel requests: each one is slow from an overseas server
+      - key: STOCKRT_RESULTS_REPO
+        value: H-yz2022/Marketpluse-stockrealtime   # the daily job publishes results to its `results` branch
       - key: PYTHON_VERSION
         value: "3.11.9"

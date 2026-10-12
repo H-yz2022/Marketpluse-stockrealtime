@@ -37,7 +37,6 @@ log = logging.getLogger(__name__)
 BACKTEST_START = date(2025, 10, 13)
 BACKTEST_END = date(2026, 10, 9)
 LIVE_START = date(2026, 10, 12)
-LAB_DIR = archive.RESULTS_DIR / "lab"
 COSTS = {
     "Commission, 0.025% each way": 0.0005,
     "Stamp duty, 0.05% on the sale (since 28 Aug 2023)": 0.0005,
@@ -49,7 +48,22 @@ BENCHES = {"ew": "Equal-weight market", "csi300": "CSI 300", "csi1000": "CSI 100
 LIVE_MIN_DAYS = 60
 TRADE_COLS = ["strategy", "day", "time", "code", "name", "price", "pct_change", "gap_pct", "volume_ratio",
               "turnover_rate", "float_mcap", "core", "all", *[f"ret_{x}" for x in EXITS], "main_net",
-              "auction_volume", "auction_amount"]
+              "flow_source", "auction_volume", "auction_amount"]
+
+
+def lab_dir():
+    """results/lab of the results in use (published by the daily job, or local)."""
+    return archive.RESULTS_DIR / "lab"
+
+
+def still_latest(day: pd.Timestamp | date, now: datetime) -> bool:
+    """Is `day` still the market's latest session (so today-only feeds - money flow, today's minute bars -
+    still describe it)? True until the next session's pre-open starts."""
+    from . import tradingdays
+
+    d = pd.Timestamp(day).date()
+    nxt = tradingdays.next_trading_day("CN", d)
+    return nxt is None or now.date() < nxt or (now.date() == nxt and now.time() < time(9, 15))
 
 
 def universe_codes() -> tuple[list[str], dict[str, str]]:
@@ -111,12 +125,12 @@ def score_frame(frame: pd.DataFrame, idx: dict[str, pd.DataFrame], days: list[pd
 
 
 def _save(df: pd.DataFrame, name: str) -> None:
-    LAB_DIR.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(LAB_DIR / name, index=False, compression="zstd")
+    lab_dir().mkdir(parents=True, exist_ok=True)
+    df.to_parquet(lab_dir() / name, index=False, compression="zstd")
 
 
 def _read(name: str) -> pd.DataFrame:
-    p = LAB_DIR / name
+    p = lab_dir() / name
     return pd.read_parquet(p) if p.exists() else pd.DataFrame()
 
 
@@ -136,7 +150,7 @@ def run_backtest(frame: pd.DataFrame, idx: dict[str, pd.DataFrame], end: date = 
         old = old[~old["day"].isin(days)]
     _save(pd.concat([old, table], ignore_index=True).sort_values(["day", "time"]), "days.parquet")
     _save(mom, "csi300_intraday.parquet")
-    (LAB_DIR / "meta.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
+    (lab_dir() / "meta.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
     write_report()
     return {"trades": trades, "days": table, "meta": meta}
 
@@ -352,10 +366,16 @@ def write_books(frame: pd.DataFrame, sessions: int = 30, end: date = BACKTEST_EN
 
 def load() -> dict:
     """Everything the page shows (a few MB): trades, the session table, the CSI 300 intraday table, meta."""
-    meta_f = LAB_DIR / "meta.json"
+    meta_f = lab_dir() / "meta.json"
     return {"backtest": _read("backtest_trades.parquet"), "live": _read("live_trades.parquet"),
             "days": _read("days.parquet"), "momentum": _read("csi300_intraday.parquet"),
             "meta": json.loads(meta_f.read_text(encoding="utf-8")) if meta_f.exists() else {}}
+
+
+def recorded(day) -> bool:
+    """Is this session in the live record (written by the daily update)?"""
+    lv = _read("live_trades.parquet")
+    return not lv.empty and pd.Timestamp(day) in set(lv["day"])
 
 
 def _session_done(day: pd.Timestamp, now: datetime) -> bool:
@@ -365,14 +385,15 @@ def _session_done(day: pd.Timestamp, now: datetime) -> bool:
 def _live_extras(day: pd.Timestamp, picks: pd.DataFrame, now: datetime) -> pd.DataFrame:
     """Main-fund flow (S1) and auction volumes (S2) - readable only on the session's own day."""
     picks = picks.copy()
-    if picks.empty or day.date() != now.date():
+    if picks.empty or not still_latest(day, now):
         return picks
     s1 = picks[picks["strategy"].isin(["S1", "S1b"])]["code"].unique().tolist()
     if s1:
         try:
-            flow = realtime.main_flow(s1).set_index("code")["main_net"]
+            flow = realtime.main_flow(s1).set_index("code")
             m = picks["strategy"].isin(["S1", "S1b"])
-            picks.loc[m, "main_net"] = picks.loc[m, "code"].map(flow)
+            picks.loc[m, "main_net"] = picks.loc[m, "code"].map(flow["main_net"])
+            picks.loc[m, "flow_source"] = picks.loc[m, "code"].map(flow["source"])
         except Exception as e:  # noqa: BLE001 - left unchecked
             log.warning("main flow unavailable: %s", e)
     s2 = picks[picks["strategy"] == "S2"]["code"].unique().tolist()
@@ -415,19 +436,22 @@ def update(progress: Callable[[float, str], None] | None = None, workers: int = 
     done = [d for d in probe if _session_done(d, now)]
     recorded = set(lv["day"]) if not lv.empty else set()
     new_days = [d for d in done if d.date() >= LIVE_START and d not in recorded]
+    meta_f = lab_dir() / "meta.json"
+    meta = json.loads(meta_f.read_text(encoding="utf-8")) if meta_f.exists() else {}
     pending = set()
-    for t in (bt, lv):
-        if not t.empty:
-            miss = t[t[[f"ret_{x}" for x in EXITS]].isna().any(axis=1)]
-            pending |= {d for d in miss["day"].unique() if pd.Timestamp(d) >= done[-6]}
+    if meta.get("exits_checked_through") != str(done[-1].date()):
+        for t in (bt, lv):
+            if not t.empty:
+                miss = t[t[[f"ret_{x}" for x in EXITS]].isna().any(axis=1)]
+                pending |= {d for d in miss["day"].unique() if done[-6] <= pd.Timestamp(d) < done[-1]}
     window = sorted(set(new_days) | {pd.Timestamp(d) for d in pending})
     if not window:
-        return {"recorded": [], "filled": 0, "note": "nothing new"}
+        return {"recorded": [], "filled": 0, "note": "up to date"}
     first = window[0].date()
     n_sess = sum(1 for d in probe if d >= window[0])
     codes, names = universe_codes()
     frame, idx, _ = labdata.build(codes, names, first, progress=progress, workers=workers,
-                                  bar_count=min(800, 8 * (n_sess + 3)))
+                                  bar_count=min(800, 8 * (n_sess + 3)), min_coverage=0.97)
     # The bottom-5% cut-off needs the whole market, which this frame is.
     trades, table = score_frame(frame, idx, window)
     trades["recorded_at"] = now.strftime("%Y-%m-%d %H:%M")
@@ -475,9 +499,8 @@ def update(progress: Callable[[float, str], None] | None = None, workers: int = 
     _save(days_tbl, "days.parquet")
     _save(mom.sort_values("day"), "csi300_intraday.parquet")
     write_books(frame, sessions=len(window), end=done[-1].date(), overwrite=False)
-    meta_f = LAB_DIR / "meta.json"
-    meta = json.loads(meta_f.read_text(encoding="utf-8")) if meta_f.exists() else {}
     meta["live_updated"] = now.strftime("%Y-%m-%d %H:%M")
+    meta["exits_checked_through"] = str(done[-1].date())
     meta_f.write_text(json.dumps(meta, indent=1), encoding="utf-8")
     write_report()
     return {"recorded": [str(d.date()) for d in new_days], "new_picks": len(new), "filled": filled}
@@ -615,5 +638,5 @@ def write_report(exit: str = "t1_close") -> None:
                          f"{r['verdict']} |")
         lines.append("")
     lines += ["Research tooling, not investment advice."]
-    LAB_DIR.mkdir(parents=True, exist_ok=True)
-    (LAB_DIR / "README.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    lab_dir().mkdir(parents=True, exist_ok=True)
+    (lab_dir() / "README.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
