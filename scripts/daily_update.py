@@ -16,9 +16,11 @@ does the work.
 4. Catch-up: any of the last 4 sessions missing from the front page is rebuilt (the minute series
    reaches five sessions back); a session rebuilt with Sina's money flow is redone once East
    Money answers again.
-5. Rolling window: only the newest 4 sessions and 5 volume books are kept, so the data never piles up
+5. 收盘选股, the after-close screen (from 16:00 Beijing): 成交量翻倍，突破压力位，换手率＞3%，站上牛熊线的非ST股票.
+6. Rolling window: only the newest 4 sessions and 5 volume books are kept, so the data never piles up
    (the Strategy lab's log is kept whole: it is the test itself, and grows by a few MB a year).
-6. manifest.json, which tells the website that new results are published.
+7. job_log.json (what each run did, including errors) and manifest.json, which tells the website that new
+   results are published.
 
 Each step is independent: one failing doesn't stop the others (the exit code reports it).
 """
@@ -36,8 +38,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from stockrt import archive, checkpoint, lab, realtime  # noqa: E402
+from stockrt import archive, checkpoint, closescreen, lab, realtime  # noqa: E402
 from stockrt.calendar import now_bj  # noqa: E402
+
+LOG: list[dict] = []   # written to results/job_log.json, so failures are visible without GitHub access
 
 
 def step(name: str, fn) -> bool:
@@ -46,11 +50,31 @@ def step(name: str, fn) -> bool:
     try:
         out = fn()
         print(f"   ok in {time.time() - t0:,.0f}s: {out}", flush=True)
+        LOG.append({"step": name, "ok": True, "seconds": round(time.time() - t0), "result": str(out)[:300]})
         return True
-    except Exception:  # noqa: BLE001 - keep going, report at the end
+    except Exception as e:  # noqa: BLE001 - keep going, report at the end
         traceback.print_exc()
         print(f"   FAILED after {time.time() - t0:,.0f}s", flush=True)
+        tb = traceback.format_exc().strip().splitlines()
+        LOG.append({"step": name, "ok": False, "seconds": round(time.time() - t0),
+                    "error": f"{type(e).__name__}: {str(e)[:300]}", "where": " | ".join(tb[-4:])[:600]})
         return False
+
+
+def close_screens(now) -> str:
+    """收盘选股 for every recent session that has a volume book and no list yet - today's from 16:00."""
+    done = []
+    for day in archive.sessions("CN")[:archive.KEEP_SESSIONS]:
+        if day in archive.screen_days():
+            continue
+        if day == now.date() and now.time() < dtime(16, 0):
+            continue
+        if day not in archive.volume_days("CN"):
+            continue
+        res = closescreen.run(day)
+        done.append(f"{day}: {int(closescreen.apply(res['frame']).passes.sum()) if not res['frame'].empty else 0} "
+                    f"of {res['shortlisted']}")
+    return "; ".join(done) or "up to date"
 
 
 def main() -> int:
@@ -87,6 +111,8 @@ def main() -> int:
         if day in archive.sessions(mkt):
             return f"{day} already saved"
         res = checkpoint.evaluate(s, spec=spec)
+        if not res["frames"]:  # nothing rebuilt: say why in the job log instead of passing silently
+            raise RuntimeError(f"{res['day']}: " + ("; ".join(res["notes"]) or f"pending {res.get('pending')}"))
         return f"{res['day']} checkpoints {list(res['frames'])}"
 
     ok &= step("Front page, A-shares", lambda: front("CN"))
@@ -95,8 +121,11 @@ def main() -> int:
         ok &= step("Front page, Hong Kong", lambda: front("HK"))
     ok &= step("Strategy lab", lambda: lab.update(workers=args.workers))
     ok &= step("Catch up missed sessions", lambda: [str(d) for d in checkpoint.catch_up()] or "none missing")
+    ok &= step("After-close screen (16:00)", lambda: close_screens(now_bj()))
     ok &= step("Rolling window", lambda: f"{len(archive.prune_sessions('CN')) + len(archive.prune_sessions('HK'))} "
-                                         f"session files and {len(archive.prune_volumes('CN'))} volume books removed")
+                                         f"session files, {len(archive.prune_volumes('CN'))} volume books and "
+                                         f"{len(archive.prune_screens())} screen files removed")
+    archive.write_job_log(LOG, now_bj())
     ok &= step("Manifest", lambda: archive.write_manifest(now_bj()))
     return 0 if ok else 1
 

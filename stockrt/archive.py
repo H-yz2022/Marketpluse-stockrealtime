@@ -92,7 +92,8 @@ def write_index() -> Path:
              "`<date>.csv` (ranked list) and `<date>.parquet` + `.json` (everything the app needs). "
              "`volumes/` holds each session's closing volumes for the opening-auction queries. Only the newest "
              f"{KEEP_SESSIONS} sessions and {KEEP_BOOKS} volume books are kept: the daily job drops older ones.", "",
-             "The Strategy lab's scorecards (backtest and live record) are in [lab/README.md](lab/README.md).", ""]
+             "The Strategy lab's scorecards (backtest and live record) are in [lab/README.md](lab/README.md). "
+             "The 16:00 after-close screen (收盘选股) is in `cn/screens/<date>.md`.", ""]
     for mkt in ("CN", "HK"):
         days = sessions(mkt)
         if not days:
@@ -181,6 +182,79 @@ def prune_sessions(mkt: str, keep: int = KEEP_SESSIONS) -> list[Path]:
     return removed
 
 
+# --------------------------------------------------------------------------- 收盘选股 (after-close screen)
+
+def _screen_base(day: date) -> Path:
+    return RESULTS_DIR / "cn" / "screens" / day.isoformat()
+
+
+def save_screen(day: date, frame: pd.DataFrame, meta: dict) -> Path | None:
+    """One session of the after-close screen: every shortlisted stock with its measures (parquet), the run's
+    notes (json) and a readable page with the stocks that met every rule (md)."""
+    if sample.is_sample():
+        return None
+    from .closescreen import QUERY_ZH, apply, rules
+
+    base = _screen_base(day)
+    base.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_parquet(base.with_suffix(".parquet"), index=False, compression="zstd")
+    base.with_suffix(".json").write_text(json.dumps({"day": day.isoformat(), **meta}, ensure_ascii=False, indent=1),
+                                         encoding="utf-8")
+    lines = [f"# 收盘选股 · {day:%a %d %b %Y}", "", QUERY_ZH, "",
+             "; ".join(f"**{lbl}**: {desc}" for _, lbl, desc in rules()), ""]
+    d = apply(frame) if not frame.empty else frame
+    hits = d[d["passes"]] if not d.empty else d
+    if hits.empty:
+        lines.append(f"No stock met every rule ({meta.get('shortlisted', 0)} shortlisted).")
+    else:
+        lines += ["| Code | Name | Close | Change | Volume x prev | Turnover | Above resistance | Above MA250 |",
+                  "|---|---|---|---|---|---|---|---|"]
+        for r in hits.itertuples():
+            lines.append(f"| {r.code[2:]} | {r.name} | {r.close:.2f} | {r.pct_change:+.2f}% | {r.vol_x:.1f}x | "
+                         f"{r.turnover_rate:.2f}% | {r.above_resistance_pct:+.2f}% | {r.above_ma_pct:+.2f}% |")
+    lines += ["", "Research tooling, not investment advice."]
+    base.with_suffix(".md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return base
+
+
+def screen_days() -> list[date]:
+    d = RESULTS_DIR / "cn" / "screens"
+    return sorted((date.fromisoformat(f.stem) for f in d.glob("*.parquet")), reverse=True) if d.exists() else []
+
+
+def load_screen(day: date) -> tuple[pd.DataFrame, dict] | None:
+    base = _screen_base(day)
+    if not base.with_suffix(".parquet").exists():
+        return None
+    meta_f = base.with_suffix(".json")
+    meta = json.loads(meta_f.read_text(encoding="utf-8")) if meta_f.exists() else {}
+    return pd.read_parquet(base.with_suffix(".parquet")), meta
+
+
+def prune_screens(keep: int = KEEP_SESSIONS) -> list[Path]:
+    removed = []
+    for d in screen_days()[keep:]:
+        for ext in (".parquet", ".json", ".md"):
+            path = _screen_base(d).with_suffix(ext)
+            if path.exists():
+                path.unlink()
+                removed.append(path)
+    return removed
+
+
+def write_job_log(steps: list[dict], now) -> Path:
+    """results/job_log.json: what the last daily-update runs did (newest first) - readable without GitHub access."""
+    path = RESULTS_DIR / "job_log.json"
+    try:
+        runs = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    except (OSError, ValueError):
+        runs = []
+    runs = [{"at": now.strftime("%Y-%m-%d %H:%M"), "steps": steps}] + runs
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(runs[:12], ensure_ascii=False, indent=1), encoding="utf-8")
+    return path
+
+
 def write_manifest(now) -> Path:
     """results/manifest.json: what is published, and when - the website checks it to pick up new results."""
     path = RESULTS_DIR / "manifest.json"
@@ -188,6 +262,7 @@ def write_manifest(now) -> Path:
         "updated": now.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "sessions": {m: [d.isoformat() for d in sessions(m)] for m in ("CN", "HK")},
         "volume_books": [d.isoformat() for d in volume_days("CN")],
+        "close_screens": [d.isoformat() for d in screen_days()],
     }, indent=1), encoding="utf-8")
     return path
 

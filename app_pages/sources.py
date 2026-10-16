@@ -115,3 +115,16 @@ st.markdown("**Published results** · computed once after each close by the dail
 st.caption(f"Repository: {published.repo() or '—'} · branch `{published.BRANCH}` · in use: {pub.get('source')} · "
            f"published {man.get('updated', '—')} · sessions {', '.join(man.get('sessions', {}).get('CN', [])) or '—'}"
            + (f" · last check: {pub['error']}" if pub.get("error") else "") + f" · folder: {archive.RESULTS_DIR}")
+job_log = archive.RESULTS_DIR / "job_log.json"
+if job_log.exists():
+    import json
+
+    runs = json.loads(job_log.read_text(encoding="utf-8"))
+    with st.expander(f"Daily update runs ({len(runs)}, newest first)", icon=":material/history:"):
+        for r in runs[:6]:
+            bad = [x for x in r["steps"] if not x["ok"]]
+            st.markdown(f"**{r['at']} Beijing** · " + ("all steps ok" if not bad else
+                        f":red[{len(bad)} failed: {', '.join(x['step'] for x in bad)}]"))
+            for x in r["steps"]:
+                st.caption(f"{'✓' if x['ok'] else '✗'} {x['step']} ({x['seconds']}s): "
+                           f"{x.get('result') or x.get('error', '')}")

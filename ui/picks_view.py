@@ -166,6 +166,8 @@ def render(mkt: str) -> None:
                        f"at {cps_txt}.")
         _result_block(shown, spec, P, rules, cp_name, mkt, key=f"{mkt}_current")
 
+    if mkt == "CN":
+        _close_screen()
     _past_sessions(mkt, spec, P, rules, cp_name, exclude=shown["day"] if shown else None)
 
 
@@ -208,6 +210,101 @@ def _await_publish(mkt: str, day: date) -> None:
             st.rerun()
 
     poll()
+
+
+SCREEN_AT = time(16, 0)        # the after-close screen runs from 16:00 Beijing
+SCREEN_DEADLINE = time(17, 10)  # after this, the site computes it itself if nothing is published
+
+
+def _close_screen() -> None:
+    """收盘选股: the 16:00 after-close screen - fixed figures, computed once a day by the daily update."""
+    from stockrt import closescreen
+
+    st.subheader("收盘选股 · After-close screen (16:00)", anchor=False)
+    with st.container(border=True):
+        st.markdown(f"**{closescreen.QUERY_ZH}**")
+        st.caption(closescreen.QUERY_EN.replace("**", "") + " Computed once a day from 16:00 Beijing (04:00 in New "
+                   "York during daylight saving) on the session's closing data, then shown as fixed figures.")
+    if sample.is_sample():
+        st.caption("Runs on live data only - turn on **Live data** in the sidebar.")
+        return
+    now = now_bj()
+    session = checkpoint.latest_session_day("CN")
+    days = archive.screen_days()
+    if session not in days:
+        if session == now.date() and now.time() < SCREEN_AT:
+            mins = (SCREEN_AT.hour * 60 - now.hour * 60 - now.minute)
+            st.caption(f":material/schedule: Today's list comes at 16:00 Beijing (in {mins // 60} h {mins % 60} min)."
+                       + (" Showing the latest saved session." if days else ""))
+        elif session == now.date() and now.time() < SCREEN_DEADLINE and published.enabled():
+            st.caption(":material/lock_clock: Today's list is being computed by the daily update and appears here "
+                       "by itself.")
+
+            @st.fragment(run_every="60s")
+            def poll() -> None:
+                published.sync()
+                if session in archive.screen_days():
+                    st.rerun()
+
+            poll()
+        else:
+            def run(progress) -> None:
+                snap = realtime.market_snapshot("CN")
+                if checkpoint.session_day(snap) == session:
+                    archive.save_volumes_from_snapshot("CN", snap)
+                closescreen.run(session, progress=progress, workers=checkpoint.WORKERS)
+
+            job = job_runner().submit(("close_screen", str(session), ("16:00",)), run)
+            if job.active:
+                _job_progress(job)
+            elif job.state == "failed":
+                st.caption(f"The list for {session} couldn't be computed ({job.error}).")
+            days = archive.screen_days()
+    if not days:
+        st.info("No after-close list saved yet. The first one appears after 16:00 Beijing on a trading day.",
+                icon=":material/schedule:")
+        return
+    with st.container(horizontal=True, vertical_alignment="bottom"):
+        pick = st.selectbox("Session", days, format_func=lambda d: f"{pd.Timestamp(d):%a %d %b %Y}",
+                            key="close_screen_day")
+        res_n = st.segmented_control("压力位 · Resistance", list(closescreen.RESISTANCE), default=20,
+                                     format_func=lambda n: f"{n}-session high", key="close_screen_res",
+                                     required=True)
+        ma_n = st.segmented_control("牛熊线 · Bull-bear line", list(closescreen.BULL_BEAR), default=250,
+                                    format_func=lambda n: f"MA{n}", key="close_screen_ma", required=True)
+    got = archive.load_screen(pick)
+    if got is None or got[0].empty:
+        st.caption("Nothing passed the end-of-day shortlist that session.")
+        return
+    frame, meta = got
+    d = closescreen.apply(frame, res_n, ma_n)
+    hits = d[d["passes"]]
+    st.markdown(f"**{len(hits)} stocks** met all 5 conditions on {pd.Timestamp(pick):%a %d %b} "
+                f"({meta.get('shortlisted', len(frame))} shortlisted on volume and turnover).")
+    show = hits if not hits.empty else d[d["rules_met"] == 4].head(15)
+    if hits.empty:
+        st.caption("Nothing met every condition - showing stocks one condition short.")
+    cols = ["code", "name", "close", "pct_change", "vol_x", "turnover_rate", "above_resistance_pct", "above_ma_pct",
+            "float_mcap", "missed"]
+    st.dataframe(style_signed(show[cols], ["pct_change"]), hide_index=True, column_config={
+        "code": st.column_config.TextColumn("Code"), "name": st.column_config.TextColumn("Name"),
+        "close": st.column_config.NumberColumn("Close", format="%.2f"),
+        "pct_change": st.column_config.NumberColumn("Change", format="%+.2f%%"),
+        "vol_x": st.column_config.NumberColumn("Volume × prev", format="%.1f×"),
+        "turnover_rate": st.column_config.NumberColumn("Turnover", format="%.2f%%"),
+        "above_resistance_pct": st.column_config.NumberColumn("Above resistance", format="%+.2f%%"),
+        "above_ma_pct": st.column_config.NumberColumn(f"Above MA{ma_n}", format="%+.2f%%"),
+        "float_mcap": st.column_config.NumberColumn("Float cap", format="compact"),
+        "missed": st.column_config.TextColumn("Missed")})
+    st.download_button("After-close screen (CSV)", to_csv_bytes(show[cols]), file_name=f"close_screen_{pick}.csv",
+                       mime="text/csv", on_click="ignore", icon=":material/download:")
+    with st.expander("How each condition is read", icon=":material/help:"):
+        st.table(pd.DataFrame([{"Condition": lbl, "Reading": desc} for _, lbl, desc in closescreen.rules(res_n, ma_n)]),
+                 hide_index=True)
+        st.caption("Prices are forward-adjusted, so dividends never fake a breakout. A stock locked at the limit all "
+                   "day yesterday (一字板) has yesterday's close as its high, so today's move above it counts as a "
+                   "breakout, and its tiny volume makes today's look many times larger. Research tooling, not "
+                   "investment advice.")
 
 
 def _job_progress(job: jobs.Job) -> None:

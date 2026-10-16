@@ -12,6 +12,7 @@ on:
   schedule:
     - cron: "5 7 * * 1-5"    # 15:05 Beijing - A-shares closed
     - cron: "40 7 * * 1-5"   # 15:40 Beijing - retry
+    - cron: "2 8 * * 1-5"    # 16:02 Beijing - the after-close screen (收盘选股)
     - cron: "15 8 * * 1-5"   # 16:15 Beijing - Hong Kong closed
     - cron: "30 9 * * 1-5"   # 17:30 Beijing - retry
   workflow_dispatch: {}
