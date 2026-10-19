@@ -31,7 +31,6 @@ page = st.navigation(
         "": [
             st.Page("app_pages/picks.py", title="尾盘选股 · A-shares", icon=":material/leaderboard:", default=True),
             st.Page("app_pages/picks_hk.py", title="尾盘选股 · Hong Kong (live test)", icon=":material/science:"),
-            st.Page("app_pages/lab.py", title="Strategy lab · 策略实验室", icon=":material/biotech:"),
         ],
         "Markets": [
             st.Page("app_pages/screener.py", title="Screener & query", icon=":material/filter_alt:"),

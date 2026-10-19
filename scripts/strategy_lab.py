@@ -4,6 +4,7 @@
     python scripts/strategy_lab.py backtest           # score every strategy on the fetched year
     python scripts/strategy_lab.py validate --date 2026-10-08
     python scripts/strategy_lab.py books --sessions 30   # volume books for the last N sessions
+    python scripts/strategy_lab.py pools              # candidate pools for "try your own parameters"
     python scripts/strategy_lab.py update             # record new sessions live + fill pending exits
 
 `fetch` keeps its download in data/lab/ (not in git); `backtest`, `books` and `update` write the
@@ -86,6 +87,20 @@ def cmd_books(args) -> int:
     return 0
 
 
+def cmd_pools(args) -> int:
+    """Candidate pools for 'try your own parameters' (research/lab_pools/, kept with the code)."""
+    from stockrt import labpools
+
+    frame, idx = _load()
+    days = sorted(d for d in frame["date"].unique() if pd.Timestamp(d).date() <= args.end)
+    t0 = time.time()
+    pools = labpools.build(frame, idx, days)
+    for path in labpools.save(pools):
+        print(f"saved {path} ({path.stat().st_size / 1e6:.1f} MB)")
+    print({sid: len(p) for sid, p in pools.items()}, f"{time.time() - t0:,.0f}s")
+    return 0
+
+
 def cmd_update(args) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     t0 = time.time()
@@ -108,11 +123,13 @@ def main() -> int:
     k = sub.add_parser("books")
     k.add_argument("--sessions", type=int, default=30)
     k.add_argument("--end", type=date.fromisoformat, default=lab.BACKTEST_END)
+    pl = sub.add_parser("pools")
+    pl.add_argument("--end", type=date.fromisoformat, default=lab.BACKTEST_END)
     u = sub.add_parser("update")
     u.add_argument("--workers", type=int, default=16)
     args = ap.parse_args()
     return {"fetch": cmd_fetch, "backtest": cmd_backtest, "validate": cmd_validate, "books": cmd_books,
-            "update": cmd_update}[args.cmd](args)
+            "pools": cmd_pools, "update": cmd_update}[args.cmd](args)
 
 
 if __name__ == "__main__":

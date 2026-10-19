@@ -13,6 +13,7 @@ Built for a free hosting plan, where every request to the mainland sources is sl
 import dataclasses
 from datetime import date, time
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -168,7 +169,10 @@ def render(mkt: str) -> None:
 
     if mkt == "CN":
         _close_screen()
+        _volume_4day()
     _past_sessions(mkt, spec, P, rules, cp_name, exclude=shown["day"] if shown else None)
+    if mkt == "CN":
+        _strategy_lab()
 
 
 # ---------------------------------------------------------------------------------------------- pieces
@@ -343,7 +347,7 @@ def _auction_panel(mkt: str, spec: checkpoint.MarketSpec) -> None:
         if exp.open:
             with exp:
                 view = st.segmented_control(
-                    "View", ["Overview", VOL_MULT, VOL_PRIOR, "Auction screen · 竞价选股"],
+                    "View", ["Overview", VOL_MULT, "Auction screen · 竞价选股"],
                     default="Overview", key="auction_view", required=True)
                 if view == "Overview":
                     _auction_view(mkt, spec, pre_open=False)
@@ -364,7 +368,6 @@ def auction_volume_memo() -> dict:
 
 
 VOL_MULT = "Volume ≥ N× yesterday"
-VOL_PRIOR = "Volume > previous 4 days · 成交量大于前4日"
 
 
 def _auction_research(spec: checkpoint.MarketSpec, view: str | None = None, day: date | None = None) -> None:
@@ -372,9 +375,6 @@ def _auction_research(spec: checkpoint.MarketSpec, view: str | None = None, day:
     from ui import cache  # loaded only when these queries are opened
 
     today = day or now_bj().date()
-    if view == VOL_PRIOR:
-        _volume_prior(today)
-        return
     got = archive.load_volumes("CN", before=today)
     if got is None:
         st.info("No volume book for the previous session yet. It is saved automatically after each close, or "
@@ -504,44 +504,82 @@ def _auction_research(spec: checkpoint.MarketSpec, view: str | None = None, day:
                    "them.")
 
 
-def _volume_prior(day: date) -> None:
-    """列出成交量大于前4日成交量的股票 - against the saved end-of-day volume books."""
-    from ui import cache
+@st.cache_data(max_entries=6, show_spinner=False)
+def _vol4_from_books(results_dir: str, day: date, mode: str, min_amount: float, exclude_st: bool):
+    """A closed session against the 4 before it, from the saved end-of-day volume books (no download)."""
+    from datetime import timedelta
 
+    from stockrt.symbols import is_st
+
+    got = archive.load_volume_history("CN", before=day + timedelta(days=1), n=1)
     hist = archive.load_volume_history("CN", before=day, n=4)
-    if len(hist) < 4:
-        st.info(f"This needs the volume books of the 4 sessions before {pd.Timestamp(day):%a %d %b}; "
-                f"{len(hist)} are saved. They are written after each close (and by the daily update), or backfill "
-                "with `python scripts/strategy_lab.py books`.", icon=":material/info:")
-        return
-    snap, t = cache.snapshot("CN")
-    snap = snap[pd.to_datetime(snap["time"]).dt.date == day]
-    if snap.empty:
-        st.caption("No quotes for this session yet.")
+    if not got or got[0][0] != day or len(hist) < 4:
+        return None, [d for d, _ in hist]
+    b = got[0][1].rename(columns={"close": "price"})
+    b["is_st"] = b["name"].fillna("").map(is_st)
+    b["float_mcap"] = b["price"] * b.get("float_shares", np.nan)
+    return opening.volume_vs_prior(b, hist, mode, 1.0, min_amount, exclude_st), [d for d, _ in hist]
+
+
+def _volume_4day() -> None:
+    """列出成交量大于前4日成交量的股票 - the latest closed session (fixed), or today so far while trading."""
+    st.subheader("成交量大于前4日 · Volume above the previous 4 days", anchor=False)
+    with st.container(border=True):
+        st.markdown("**列出成交量大于前4日成交量的股票**")
+        st.caption("Stocks whose volume beat the previous 4 sessions'. After the close it is read from the saved "
+                   "closing volumes, so it shows instantly and stays fixed; during the session you can switch to "
+                   "today's volume so far.")
+    if sample.is_sample():
+        st.caption("Runs on live data only - turn on **Live data** in the sidebar.")
         return
     s = status("CN")
-    in_session = day == now_bj().date() and s.phase in ("morning", "lunch", "afternoon")
+    now = now_bj()
+    books = archive.volume_days("CN")
+    trading_now = checkpoint.latest_session_day("CN") == now.date() and \
+        s.phase in ("morning", "lunch", "afternoon", "closing auction")
+    source = "close"
+    if trading_now:
+        source = st.segmented_control("Data", ["close", "live"], default="close", key="vol4_source", required=True,
+                                      format_func={"close": "Latest close (fixed)",
+                                                   "live": "Today so far (live)"}.get)
     labels = {k: v.format(n=4, n1=5) for k, v in opening.PRIOR_MODES.items()}
     with st.container(horizontal=True, vertical_alignment="bottom"):
-        mode = st.selectbox("Volume today is", list(labels), format_func=lambda k: labels[k], key="prior_mode",
+        mode = st.selectbox("Volume is", list(labels), format_func=lambda k: labels[k], key="prior_mode",
                             help="成交量大于前4日成交量. The default reads it as above each of the 4 days, i.e. the "
                                  "highest volume of the last 5 sessions; the other readings compare with their total "
                                  "or average.")
-        proj = st.toggle("Full-day pace", value=False, key="prior_proj", disabled=not in_session,
-                         help="During the session, scale today's volume so far to a full day (volume ÷ share of "
-                              "the session elapsed) before comparing. Off: the volume actually traded so far.")
-        min_amt = st.number_input("Value traded today ≥ ¥ million", min_value=0.0, value=20.0, step=10.0,
-                                  key="prior_amt")
+        proj = st.toggle("Full-day pace", value=False, key="prior_proj", disabled=source != "live",
+                         help="Live only: scale today's volume so far to a full day before comparing.")
+        min_amt = st.number_input("Value traded ≥ ¥ million", min_value=0.0, value=20.0, step=10.0, key="prior_amt")
         ex_st = st.toggle("Exclude ST", value=True, key="prior_st")
-    frac = s.fraction if (proj and in_session) else 1.0
-    d = opening.volume_vs_prior(snap, hist, mode, frac, min_amt * 1e6, ex_st)
-    days = [pd.Timestamp(x) for x, _ in hist]
+    if source == "close":
+        day = next((d for d in books if d < now.date() or not trading_now), None)
+        if day is None:
+            st.info("No closing volumes saved yet - they are written after each close.", icon=":material/info:")
+            return
+        d, hist_days = _vol4_from_books(str(archive.RESULTS_DIR), day, mode, min_amt * 1e6, ex_st)
+        if d is None:
+            st.info(f"This needs the closing volumes of the 4 sessions before {pd.Timestamp(day):%a %d %b}; "
+                    f"{len(hist_days)} are saved.", icon=":material/info:")
+            return
+        when, frac = f"{pd.Timestamp(day):%a %d %b}", 1.0
+    else:
+        from ui import cache
+
+        day = now.date()
+        hist = archive.load_volume_history("CN", before=day, n=4)
+        if len(hist) < 4:
+            st.info("The closing volumes of the previous 4 sessions aren't all saved yet.", icon=":material/info:")
+            return
+        snap, t = cache.snapshot("CN")
+        snap = snap[pd.to_datetime(snap["time"]).dt.date == day]
+        frac = s.fraction if proj else 1.0
+        d = opening.volume_vs_prior(snap, hist, mode, frac, min_amt * 1e6, ex_st)
+        hist_days = [x for x, _ in hist]
+        when = f"today so far (snapshot {t} Beijing)" + (", at full-day pace" if frac < 1 else "")
+    days = [pd.Timestamp(x) for x in hist_days]
     span = ", ".join(f"{x:%d %b}" for x in days)
-    st.markdown(f"**{len(d)} stocks** traded {labels[mode]} ({span}) · snapshot {t} Beijing"
-                + (" · today's volume at full-day pace" if frac < 1 else ""))
-    if in_session and frac == 1.0:
-        st.caption("The session is still running: these stocks have already beaten the earlier sessions with the "
-                   "volume traded so far. Switch on full-day pace to include stocks on track to beat them.")
+    st.markdown(f"**{len(d)} stocks** traded {labels[mode]} ({span}) · {when}")
     cols = ["code", "name", "price", "pct_change", "vs_ref", "vs_avg", "volume", "vol_d1", "vol_d2", "vol_d3",
             "vol_d4", "amount", "turnover_rate", "float_mcap"]
     ref_name = {"each": "× 4-day max", "sum": "× 4-day total", "avg": "× 4-day avg"}[mode]
@@ -550,18 +588,30 @@ def _volume_prior(day: date) -> None:
            "pct_change": st.column_config.NumberColumn("Change", format="%+.2f%%"),
            "vs_ref": st.column_config.NumberColumn(ref_name, format="%.2f×"),
            "vs_avg": st.column_config.NumberColumn("× 4-day avg", format="%.2f×"),
-           "volume": st.column_config.NumberColumn("Volume today", format="compact"),
-           "amount": st.column_config.NumberColumn("Value today", format="compact"),
+           "volume": st.column_config.NumberColumn("Volume", format="compact"),
+           "amount": st.column_config.NumberColumn("Value traded", format="compact"),
            "turnover_rate": st.column_config.NumberColumn("Turnover", format="%.2f%%"),
            "float_mcap": st.column_config.NumberColumn("Float cap", format="compact")}
     for i, x in enumerate(days, start=1):
         cfg[f"vol_d{i}"] = st.column_config.NumberColumn(f"Vol {x:%d %b}", format="compact")
     if mode == "avg":
         cols.remove("vs_avg")
-    st.dataframe(style_signed(d[cols], ["pct_change"]), hide_index=True, column_config=cfg)
+    cols = [c for c in cols if c in d.columns]
+    st.dataframe(style_signed(d[cols], ["pct_change"]), hide_index=True, column_config=cfg, height=320)
     st.download_button("Volume vs previous 4 days (CSV)", to_csv_bytes(d[cols]),
                        file_name=f"volume_vs_4days_{day}.csv", mime="text/csv", on_click="ignore",
                        icon=":material/download:")
+
+
+def _strategy_lab() -> None:
+    """The last section: loaded only when opened, so it never slows the front page."""
+    exp = st.expander("Strategy lab · 策略实验室 - test strategies against the market, or set your own parameters",
+                      icon=":material/biotech:", on_change="rerun")
+    if exp.open:
+        with exp:
+            from ui import lab_view
+
+            lab_view.render()
 
 
 def _auction_view(mkt: str, spec: checkpoint.MarketSpec, pre_open: bool) -> None:

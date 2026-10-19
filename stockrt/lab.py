@@ -372,6 +372,36 @@ def load() -> dict:
             "meta": json.loads(meta_f.read_text(encoding="utf-8")) if meta_f.exists() else {}}
 
 
+def read(name: str) -> pd.DataFrame:
+    """One lab file (the page loads only what a view needs)."""
+    return _read(name)
+
+
+def meta() -> dict:
+    f = lab_dir() / "meta.json"
+    return json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
+
+
+def write_scorecards() -> pd.DataFrame:
+    """Every scorecard the page can show (exit x benchmark, backtest and live) in one small file, so opening
+    the lab never has to load the ~80,000 backtest trades."""
+    days = _read("days.parquet")
+    rows = []
+    for period, trades, live, rule_sets in (("backtest", _read("backtest_trades.parquet"), False, ("core",)),
+                                            ("live", _read("live_trades.parquet"), True, ("all", "core"))):
+        if trades.empty:
+            continue
+        for x in EXITS:
+            for b in BENCHES:
+                for r in rule_sets:
+                    sc = scorecard(trades, days, x, b, r, live).assign(period=period, exit=x, bench=b, rules=r)
+                    rows.append(sc)
+    out = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
+    if not out.empty:
+        _save(out, "scorecards.parquet")
+    return out
+
+
 def recorded(day) -> bool:
     """Is this session in the live record (written by the daily update)?"""
     lv = _read("live_trades.parquet")
@@ -610,6 +640,7 @@ def write_report(exit: str = "t1_close") -> None:
     data = load()
     if data["backtest"].empty:
         return
+    write_scorecards()
     meta = data["meta"]
     lines = ["# Strategy lab · 策略实验室", "",
              f"Backtest {meta.get('start')} to {meta.get('end')} ({meta.get('sessions')} sessions, "
