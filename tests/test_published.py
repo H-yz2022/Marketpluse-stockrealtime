@@ -93,9 +93,9 @@ def test_rolling_window_keeps_four_sessions(tmp_path, monkeypatch):
     assert man["sessions"]["CN"][0] == "2026-10-12" and man["updated"].startswith("2026-10-12T15:10")
 
 
-@pytest.mark.parametrize("hhmm,expected", [((14, 59), False), ((15, 20), True), ((16, 30), False)])
-def test_site_waits_for_the_published_close(monkeypatch, hhmm, expected):
+@pytest.mark.parametrize("hhmm", [(14, 59), (15, 20), (16, 30)])
+def test_site_does_not_wait_for_the_late_job(monkeypatch, hhmm):
+    """GitHub starts the scheduled job hours late, so after the close the site computes straight away."""
     monkeypatch.setattr(published, "enabled", lambda: True)
     monkeypatch.setattr("stockrt.calendar.now_bj", lambda: datetime(2026, 10, 12, *hhmm, tzinfo=BJ))
-    assert published.await_close("CN", date(2026, 10, 12)) is expected
-    assert published.await_close("CN", date(2026, 10, 9)) is False   # an earlier session is never "due"
+    assert published.await_close("CN", date(2026, 10, 12)) is False

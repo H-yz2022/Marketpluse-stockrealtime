@@ -177,3 +177,14 @@ with the real values.
 | Index move at a checkpoint | CSI 300 minute data | rule reported as unchecked |
 | ETF fees | East Money (cached 7 days) | stale cache, or blank |
 | Trading days / holidays | official calendars (below), refreshed daily | copy bundled in `stockrt/trading_calendar.json` |
+
+## Added for the front-page screens (Oct 2026)
+
+| Data | Endpoint | Notes |
+|---|---|---|
+| Minute money flow (主力暗中吸筹) | Sina `MoneyFlow.ssx_ggzj_fszs?daima=…&num=300` | Today's flow minute by minute from 09:30, with the price and change. Without `num` it returns only the last two hours. `r0_ratio` × (in + out) = the extra-large-order (特大单) net inflow. One request per stock, reachable from abroad. |
+| Minute main-fund flow | East Money `push2 …/stock/fflow/kline/get?klt=1` | 主力 = extra-large + large orders. Answers single requests but returns HTTP 502 under bulk use (and is often blocked from the US), so it isn't used for whole-market screens. |
+| Institutional holdings (长线) | East Money `datacenter-web …/api/data/v1/get?reportName=RPT_MAIN_ORGHOLD`, `ORG_TYPE="00"` | Number of institutions and the share of float held, per quarter, for the whole market in ~12 pages of 500. The newest quarter fills in over the reporting season, so the latest quarter each stock has reported is used. |
+| 10-day main-fund flow (长线) | East Money `push2 …/ulist.np/get` field `f174` (100 stocks per call) | Fallback: Sina `MoneyFlow.ssl_qsfx_zjlrqs` daily history (extra-large orders), summed over 10 sessions. |
+| ROE (长线) | Tencent quote: P/B ÷ P/E (TTM) | Trailing-12-month earnings over latest book value. |
+| History panel | Tencent daily bars (forward-adjusted), saved by the daily job to `cn/panel.parquet` | The last 30 sessions of every stock. The live rebuilds read history from it instead of downloading it per stock; a stock that went ex-dividend today (its previous close no longer matches) is downloaded instead. |

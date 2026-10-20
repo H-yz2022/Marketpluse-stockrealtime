@@ -171,6 +171,20 @@ def money_flow(code: str) -> dict:
     }
 
 
+def minute_flow(code: str) -> pd.DataFrame:
+    """Today's money flow minute by minute (cumulative from the open): price, change and the extra-large-order
+    (r0) net inflow. A fallback when East Money's minute flow is unreachable - Sina's buckets differ from
+    East Money's 主力 (extra-large + large), so callers label it."""
+    d = _json(API + "MoneyFlow.ssx_ggzj_fszs", {"daima": code, "num": 300})
+    rows = d[1] if isinstance(d, list) and len(d) > 1 else []
+    recs = []
+    for r in rows:
+        tot = float(r.get("inamount") or 0) + float(r.get("outamount") or 0)
+        recs.append({"datetime": pd.Timestamp(f"{r['opendate']} {r['ticktime']}"), "price": float(r["trade"]),
+                     "pct": 100 * float(r["changeratio"]), "main_net": float(r.get("r0_ratio") or 0) * tot})
+    return pd.DataFrame(recs).sort_values("datetime").reset_index(drop=True) if recs else pd.DataFrame()
+
+
 def daily_flow(code: str, n: int = 10) -> pd.DataFrame:
     """Main-fund (r0) net inflow per session for the last `n` sessions - a fallback for backfilling a past
     session when East Money's history is unreachable (Sina's buckets differ a little from East Money's)."""

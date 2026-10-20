@@ -230,14 +230,25 @@ def _index_pct(day: date, cps: tuple[str, ...], spec: MarketSpec = CN, minutes=N
     return out
 
 
+def _history(code: str, day: date, prev_close: float | None) -> pd.DataFrame:
+    """Daily bars before `day`: from the saved history panel when it covers the stock (no download),
+    else downloaded."""
+    from . import panel
+
+    hist = panel.history(code, day, prev_close)
+    if hist is None:
+        hist = tencent.daily(code, start=day - timedelta(days=100), fq="qfq")
+        hist = hist[hist["date"] < pd.Timestamp(day)]
+    return hist
+
+
 def _stock_rows(code: str, q: dict, day: date, cps: tuple[str, ...], spec: MarketSpec = CN,
                 minutes=None) -> list[dict]:
     mday, prev_close, bars = (minutes or tencent.minute_today)(code)
     if mday != day or bars.empty or not prev_close:
         return []
     reg = bars[bars["session"].isin(["AM", "PM"])]
-    hist = tencent.daily(code, start=day - timedelta(days=100), fq="qfq")
-    hist = hist[hist["date"] < pd.Timestamp(day)]
+    hist = _history(code, day, prev_close)
     if len(hist) < 10 or reg.empty:
         return []
     avg5 = float(hist["volume"].tail(5).mean())
@@ -298,8 +309,7 @@ def _captured_rows(cap: pd.DataFrame, p: ScreenParams, day: date, hh: str, codes
     rows = []
 
     def one(r: dict) -> dict | None:
-        hist = tencent.daily(r["code"], start=day - timedelta(days=100), fq="qfq")
-        hist = hist[hist["date"] < pd.Timestamp(day)]
+        hist = _history(r["code"], day, r.get("prev_close"))
         if len(hist) < 10:
             return None
         elapsed = elapsed_at("CN", hh)

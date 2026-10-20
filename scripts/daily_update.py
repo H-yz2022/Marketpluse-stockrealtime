@@ -16,7 +16,9 @@ does the work.
 4. Catch-up: any of the last 4 sessions missing from the front page is rebuilt (the minute series
    reaches five sessions back); a session rebuilt with Sina's money flow is redone once East
    Money answers again.
-5. 收盘选股, the after-close screen (from 16:00 Beijing): 成交量翻倍，突破压力位，换手率＞3%，站上牛熊线的非ST股票.
+5. 收盘选股 (成交量翻倍，突破压力位，换手率＞3%，站上牛熊线), 长线 (the long-term screen on closing data) and
+   主力暗中吸筹 (the morning checkpoints, from each stock's minute money flow); then the history panel - the
+   last 30 sessions of every stock - so tomorrow's live updates download only intraday data.
 6. Rolling window: only the newest 4 sessions and 5 volume books are kept, so the data never piles up
    (the Strategy lab's log is kept whole: it is the test itself, and grows by a few MB a year).
 7. job_log.json (what each run did, including errors) and manifest.json, which tells the website that new
@@ -38,7 +40,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from stockrt import archive, checkpoint, closescreen, lab, realtime  # noqa: E402
+from stockrt import accumulation, archive, checkpoint, closescreen, lab, longterm, panel, realtime  # noqa: E402
 from stockrt.calendar import now_bj  # noqa: E402
 
 LOG: list[dict] = []   # written to results/job_log.json, so failures are visible without GitHub access
@@ -122,9 +124,39 @@ def main() -> int:
     ok &= step("Strategy lab", lambda: lab.update(workers=args.workers))
     ok &= step("Catch up missed sessions", lambda: [str(d) for d in checkpoint.catch_up()] or "none missing")
     ok &= step("After-close screen (16:00)", lambda: close_screens(now_bj()))
+
+    def long_term():
+        day = checkpoint.session_day(cn_snapshot())
+        if longterm.load(day) is not None:
+            return f"{day} already saved"
+        res = longterm.run(day, cn_snapshot(), workers=args.workers)
+        return f"{day}: {int(longterm.apply(res['frame']).passes.sum())} of {res['shortlisted']}"
+
+    def morning_accumulation():
+        day = checkpoint.session_day(cn_snapshot())
+        if accumulation.load(day) is not None:
+            return f"{day} already saved"
+        res = accumulation.compute(day, cn_snapshot(), accumulation.CHECKPOINTS, workers=12)
+        accumulation.save(res)
+        hits = 0
+        if not res["frame"].empty:
+            hits = int((accumulation.apply(res["frame"], accumulation.CHECKPOINTS).hits > 0).sum())
+        return f"{day}: {hits} of {res['candidates']}"
+
+    def history_panel():
+        day = checkpoint.session_day(cn_snapshot())
+        if (panel.last_day() or day) >= day and panel.path().exists():
+            return f"up to {panel.last_day()}"
+        codes = realtime.universe("CN")["code"].tolist()
+        return panel.save(panel.build(codes, day, workers=args.workers))
+
+    ok &= step("长线 (after the close)", long_term)
+    ok &= step("主力暗中吸筹 (morning checkpoints)", morning_accumulation)
+    ok &= step("History panel (for tomorrow's live updates)", history_panel)
     ok &= step("Rolling window", lambda: f"{len(archive.prune_sessions('CN')) + len(archive.prune_sessions('HK'))} "
                                          f"session files, {len(archive.prune_volumes('CN'))} volume books and "
-                                         f"{len(archive.prune_screens())} screen files removed")
+                                         f"{len(archive.prune_screens())} screen files, "
+                                         f"{len(longterm.prune()) + len(accumulation.prune())} other files removed")
     archive.write_job_log(LOG, now_bj())
     ok &= step("Manifest", lambda: archive.write_manifest(now_bj()))
     return 0 if ok else 1

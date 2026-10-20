@@ -317,14 +317,9 @@ def _today(stamp: str) -> None:
 
         job = job_runner().submit(key, run)
         if job.active:
-            @st.fragment(run_every="3s")
-            def watch() -> None:
-                if job.active:
-                    st.progress(job.progress, text=f"Reading today's signals: {job.message}")
-                else:
-                    st.rerun()
+            from ui.progress import job_card
 
-            watch()
+            job_card(job, "策略实验室 · 正在读取今日信号", "reading today's signals for every strategy", typical=60)
             return
         if job.state == "failed":
             st.warning(f"Today's signals couldn't be read ({job.error}).", icon=":material/warning:")

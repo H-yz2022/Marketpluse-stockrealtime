@@ -255,6 +255,12 @@ def write_job_log(steps: list[dict], now) -> Path:
     return path
 
 
+def _panel_last():
+    from . import panel
+
+    return panel.last_day()
+
+
 def write_manifest(now) -> Path:
     """results/manifest.json: what is published, and when - the website checks it to pick up new results."""
     path = RESULTS_DIR / "manifest.json"
@@ -263,6 +269,7 @@ def write_manifest(now) -> Path:
         "sessions": {m: [d.isoformat() for d in sessions(m)] for m in ("CN", "HK")},
         "volume_books": [d.isoformat() for d in volume_days("CN")],
         "close_screens": [d.isoformat() for d in screen_days()],
+        "panel": str(_panel_last()),
     }, indent=1), encoding="utf-8")
     return path
 

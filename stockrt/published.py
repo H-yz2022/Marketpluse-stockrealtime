@@ -57,7 +57,9 @@ def enabled() -> bool:
 # publishes the session. Until the deadline the site waits for it rather than recomputing; after it (the
 # job was late or failed) the site computes the session itself.
 CLOSE = {"CN": (15, 0), "HK": (16, 10)}
-DEADLINE = {"CN": (16, 10), "HK": (17, 10)}
+# GitHub has been starting the scheduled job 5-8 hours late, so the site no longer waits for it: after the
+# close it computes the session itself straight away (the job's later copy is identical).
+DEADLINE = CLOSE
 
 
 def await_close(mkt: str, day) -> bool:

@@ -19,6 +19,10 @@ st.set_page_config(
 
 # Results the daily job publishes after each close (checked at most once a minute; no-op offline).
 published.sync()
+if not sample.is_sample():
+    from ui import scheduler
+
+    scheduler.start()   # the day's fixed results at their times, while the server is awake
 
 # Settings shared by every page.
 st.session_state.setdefault("up_red", True)
