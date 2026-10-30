@@ -17,12 +17,14 @@ st.set_page_config(
     layout="wide",
 )
 
-# Results the daily job publishes after each close (checked at most once a minute; no-op offline).
-published.sync()
+# The results folder in use (a small file read). Downloading newer results, like every heavy task, happens
+# in the worker process - the web server itself only reads files, so it always answers its health check.
+published.use_current()
+clock = None
 if not sample.is_sample():
     from ui import scheduler
 
-    scheduler.start()   # the day's fixed results at their times, while the server is awake
+    clock = scheduler.start()   # queues the day's fixed results at their times, with deadlines and retries
 
 # Settings shared by every page.
 st.session_state.setdefault("up_red", True)
@@ -88,6 +90,12 @@ def market_clock() -> None:
             if lag >= 5:
                 st.caption(f":material/schedule: Quotes about {lag} min behind (free {label} feed)")
     st.caption("Open / closed from the official SZSE trading calendar and HKEX (HK government) holidays.")
+    if clock is not None:
+        icons = {"done": "✓", "running": "⟳", "waiting": "·", "due": "…", "late": "⚠", "failed": "✗"}
+        items = clock.status()
+        if items:
+            st.caption("今日自动更新 · Automatic updates: " + " · ".join(
+                f"{x['at']} {x['label']} {icons[x['state']]}" for x in items))
 
 
 def switch_data_mode() -> None:

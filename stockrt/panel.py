@@ -16,6 +16,7 @@ import threading
 from collections.abc import Callable
 from datetime import date, timedelta
 
+import numpy as np
 import pandas as pd
 
 from . import archive, http, sample
@@ -24,7 +25,7 @@ from .sources import tencent
 SESSIONS = 30
 COLUMNS = ["code", "date", "open", "close", "high", "low", "volume", "amount", "turnover_rate"]
 _lock = threading.Lock()
-_cache: dict = {"key": None, "by_code": {}}
+_cache: dict = {"key": None, "df": None, "index": {}}
 
 
 def path():
@@ -70,18 +71,22 @@ def last_day() -> date | None:
     return max(pd.read_parquet(p, columns=["date"])["date"])
 
 
-def _by_code() -> dict[str, pd.DataFrame]:
+def _loaded() -> tuple[pd.DataFrame, dict[str, tuple[int, int]]]:
+    """The panel sorted by stock and date, with each stock's row range (cheap to build and to slice)."""
     p = path()
     key = (str(p), p.stat().st_mtime) if p.exists() else None
     with _lock:
         if _cache["key"] != key:
             if key is None:
-                _cache.update(key=None, by_code={})
+                _cache.update(key=None, df=pd.DataFrame(), index={})
             else:
-                df = pd.read_parquet(p)
+                df = pd.read_parquet(p).sort_values(["code", "date"], kind="stable").reset_index(drop=True)
                 df["date"] = pd.to_datetime(df["date"])
-                _cache.update(key=key, by_code={c: g.reset_index(drop=True) for c, g in df.groupby("code")})
-        return _cache["by_code"]
+                codes = df["code"].to_numpy()
+                starts = np.flatnonzero(np.r_[True, codes[1:] != codes[:-1]])
+                ends = np.r_[starts[1:], len(codes)]
+                _cache.update(key=key, df=df, index={codes[a]: (a, b) for a, b in zip(starts, ends)})
+        return _cache["df"], _cache["index"]
 
 
 def history(code: str, day: date, prev_close: float | None = None, min_rows: int = 10) -> pd.DataFrame | None:
@@ -89,9 +94,13 @@ def history(code: str, day: date, prev_close: float | None = None, min_rows: int
     (missing, not up to the previous session, too short, or an ex-date since: prev_close disagrees)."""
     from . import tradingdays
 
-    g = _by_code().get(code)
-    if g is None or len(g) < min_rows:
+    df, index = _loaded()
+    if code not in index:
         return None
+    a, b = index[code]
+    if b - a < min_rows:
+        return None
+    g = df.iloc[a:b]
     h = g[g["date"] < pd.Timestamp(day)]
     if h.empty:
         return None

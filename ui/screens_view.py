@@ -21,12 +21,6 @@ from ui.progress import job_card
 P = st.column_config
 
 
-@st.cache_resource
-def _memo() -> dict:
-    """Results computed on this server, shared by every visitor (key -> result)."""
-    return {}
-
-
 def _runner():
     from ui.picks_view import job_runner
 
@@ -47,6 +41,14 @@ ACC_TABLE = [
     ("pct_lo", "涨幅下限 · Change above (%)", -1.0),
     ("pct_hi", "涨幅上限 · Change below (%)", 1.0),
 ]
+
+
+def acc_key(day, reached) -> tuple:
+    return ("accumulation", str(day), tuple(reached))
+
+
+def longterm_key(day) -> tuple:
+    return ("longterm", str(day))
 
 
 def accumulation_section() -> None:
@@ -71,27 +73,16 @@ def accumulation_section() -> None:
     saved = accumulation.load(day)
     res = saved if saved is not None and tuple(saved["checkpoints"]) == reached else None
     if res is None and reached:
-        key = ("accumulation", str(day), reached)
-        memo = _memo()
-        if key in memo:
-            res = memo[key]
-        else:
-            def run(progress) -> None:
-                from stockrt import realtime
-
-                snap = realtime.market_snapshot("CN")
-                out = accumulation.compute(day, snap, reached, progress, workers=checkpoint.WORKERS)
-                memo[key] = out
-                if reached == accumulation.CHECKPOINTS:
-                    accumulation.save(out)
-
-            job = _runner().submit(key, run)
-            if job.active:
-                job_card(job, "主力暗中吸筹 · 正在读取分时资金流", f"reading each candidate's minute money flow for "
-                         f"{', '.join(reached)}", typical=60)
-            elif job.state == "failed":
-                st.warning(f"The accumulation screen couldn't be computed ({job.error}).", icon=":material/warning:")
-            res = memo.get(key)
+        res = accumulation.load_partial(day, reached)
+    if res is None and reached:
+        job = _runner().submit(acc_key(day, reached), "accumulation",
+                               {"day": str(day), "reached": list(reached), "workers": checkpoint.WORKERS})
+        if job.active:
+            job_card(job, "主力暗中吸筹 · 正在读取分时资金流", f"reading each candidate's minute money flow for "
+                     f"{', '.join(reached)}", typical=90)
+        elif job.state == "failed":
+            st.warning(f"The accumulation screen couldn't be computed ({job.error}).", icon=":material/warning:")
+        res = accumulation.load_partial(day, reached)
     if res is None:
         older = [d for d in accumulation.days() if d < day]
         res = accumulation.load(older[0]) if older else None
@@ -162,24 +153,12 @@ def longterm_section() -> None:
     closed = day < now.date() or now.time() >= LT_AT
     res = longterm.load(day) if closed else None
     if res is None and closed:
-        key = ("longterm", str(day), ("close",))
-        memo = _memo()
-        if key in memo:
-            res = memo[key]
-        else:
-            def run(progress) -> None:
-                from stockrt import realtime
-
-                snap = realtime.market_snapshot("CN")
-                if checkpoint.session_day(snap) == day:
-                    memo[key] = longterm.run(day, snap, progress, workers=checkpoint.WORKERS)
-
-            job = _runner().submit(key, run)
-            if job.active:
-                job_card(job, "长线 · 正在计算收盘数据", "institutions, 10-day flow and moving averages", typical=40)
-            elif job.state == "failed":
-                st.warning(f"The 长线 screen couldn't be computed ({job.error}).", icon=":material/warning:")
-            res = memo.get(key)
+        job = _runner().submit(longterm_key(day), "longterm", {"day": str(day), "workers": checkpoint.WORKERS})
+        if job.active:
+            job_card(job, "长线 · 正在计算收盘数据", "institutions, 10-day flow and moving averages", typical=60)
+        elif job.state == "failed":
+            st.warning(f"The 长线 screen couldn't be computed ({job.error}).", icon=":material/warning:")
+        res = longterm.load(day)
     if res is None:
         older = [d for d in longterm.days() if d < day or not closed]
         res = longterm.load(older[0]) if older else None

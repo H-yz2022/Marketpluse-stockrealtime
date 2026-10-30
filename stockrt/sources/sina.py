@@ -185,6 +185,23 @@ def minute_flow(code: str) -> pd.DataFrame:
     return pd.DataFrame(recs).sort_values("datetime").reset_index(drop=True) if recs else pd.DataFrame()
 
 
+def minute_flow_at(code: str, times: tuple[str, ...]) -> tuple[str | None, dict[str, tuple[float, float]]]:
+    """Just the minutes asked for (HH:MM): {time: (extra-large-order net inflow, change %)} and the session
+    date - plain parsing, no table per stock (the morning screen reads hundreds of these)."""
+    d = _json(API + "MoneyFlow.ssx_ggzj_fszs", {"daima": code, "num": 300})
+    rows = d[1] if isinstance(d, list) and len(d) > 1 else []
+    want = set(times)
+    out: dict[str, tuple[float, float]] = {}
+    day = None
+    for r in rows:
+        t = str(r.get("ticktime", ""))[:5]
+        day = day or r.get("opendate")
+        if t in want:
+            tot = float(r.get("inamount") or 0) + float(r.get("outamount") or 0)
+            out[t] = (float(r.get("r0_ratio") or 0) * tot, 100 * float(r.get("changeratio") or 0))
+    return day, out
+
+
 def daily_flow(code: str, n: int = 10) -> pd.DataFrame:
     """Main-fund (r0) net inflow per session for the last `n` sessions - a fallback for backfilling a past
     session when East Money's history is unreachable (Sina's buckets differ a little from East Money's)."""

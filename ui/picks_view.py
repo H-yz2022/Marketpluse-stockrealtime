@@ -24,7 +24,6 @@ from stockrt import (
     opening,
     prompts,
     published,
-    realtime,
     sample,
     screener,
     watchlist,
@@ -74,9 +73,36 @@ AUCTION = {
 
 
 @st.cache_resource
-def job_runner() -> jobs.Runner:
-    """One background worker for the whole server (one job at a time keeps memory low)."""
-    return jobs.Runner(workers=1)
+def job_runner() -> jobs.ProcessRunner:
+    """One worker process at a time for the whole server: heavy work never runs inside the web server's own
+    process, so it keeps answering (and passing Render's 5-second health check)."""
+    return jobs.ProcessRunner()
+
+
+FRONT_VIEWS = {
+    "tail": "尾盘选股 · Late-session",
+    "acc": "主力暗中吸筹 · Morning",
+    "close": "收盘选股 · 16:00",
+    "long": "长线 · Long-term",
+    "lab": "策略实验室 · Strategy lab",
+}
+
+
+def _other_view(view: str) -> None:
+    """One screen per visit: only the chosen one loads its data."""
+    from ui import screens_view
+
+    if view == "acc":
+        screens_view.accumulation_section()
+    elif view == "close":
+        _close_screen()
+    elif view == "long":
+        screens_view.longterm_section()
+    else:
+        st.header("Strategy lab · 策略实验室", anchor=False)
+        from ui import lab_view
+
+        lab_view.render()
 
 
 def render(mkt: str) -> None:
@@ -84,6 +110,11 @@ def render(mkt: str) -> None:
     cp_name = {c: (f"{c} close" if c == spec.close else c) for c in spec.checkpoints}
 
     if mkt == "CN":
+        view = st.segmented_control("Screen", list(FRONT_VIEWS), format_func=FRONT_VIEWS.get, default="tail",
+                                    key="front_view", required=True, label_visibility="collapsed")
+        if view != "tail":
+            _other_view(view)
+            return
         st.header("尾盘选股 · Late-session picks", anchor=False)
         P = screener.ScreenParams()
     else:
@@ -143,9 +174,9 @@ def render(mkt: str) -> None:
         if wait:
             _await_publish(mkt, day)
         elif reached and (res is None or recompute):
-            key = (mkt, str(day), reached, repr(sorted(P.to_dict().items(), key=str)))
-            job = job_runner().submit(key, lambda progress: _compute(mkt, P, day, progress, not recompute),
-                                      force=recompute)
+            job = job_runner().submit(frontpage_key(mkt, day, reached, P), "frontpage",
+                                      {"mkt": mkt, "day": str(day), "params": P.to_dict(),
+                                       "use_cache": not recompute}, force=recompute)
         if job is not None and job.active:
             _job_progress(job)
         elif job is not None and job.state == "failed":
@@ -166,15 +197,7 @@ def render(mkt: str) -> None:
                        f"at {cps_txt}.")
         _result_block(shown, spec, P, rules, cp_name, mkt, key=f"{mkt}_current")
 
-    if mkt == "CN":
-        from ui import screens_view
-
-        screens_view.accumulation_section()
-        _close_screen()
-        screens_view.longterm_section()
     _past_sessions(mkt, spec, P, rules, cp_name, exclude=shown["day"] if shown else None)
-    if mkt == "CN":
-        _strategy_lab()
 
 
 # ---------------------------------------------------------------------------------------------- pieces
@@ -192,15 +215,9 @@ def _query_card(mkt: str, P: screener.ScreenParams) -> None:  # noqa: N803
     st.session_state["picks_lang_value"] = lang
 
 
-def _compute(mkt: str, P: screener.ScreenParams, day: date, progress, use_cache: bool) -> None:  # noqa: N803
-    """Background job body: download the market, rebuild the checkpoints, save (evaluate saves)."""
-    snap = realtime.market_snapshot(mkt)
-    res = checkpoint.evaluate(snap, P, progress=progress, use_cache=use_cache, spec=checkpoint.SPECS[mkt], day=day)
-    if mkt == "CN" and checkpoint.checkpoint_reached(day, "15:00"):
-        archive.save_volumes_from_snapshot("CN", snap)  # tomorrow's "yesterday" for the auction queries
-    del snap
-    if not res["frames"]:
-        raise RuntimeError("; ".join(res["notes"]) or "no stock could be rebuilt")
+def frontpage_key(mkt: str, day: date, reached: tuple, p: screener.ScreenParams) -> tuple:
+    """The job key shared by a visitor and the site's clock (same session, checkpoints and rules = one run)."""
+    return ("frontpage", mkt, str(day), tuple(reached), repr(sorted(p.to_dict().items(), key=str)))
 
 
 def _await_publish(mkt: str, day: date) -> None:
@@ -242,13 +259,8 @@ def _close_screen() -> None:
             st.caption(f":material/schedule: Today's list comes at 16:00 Beijing (in {mins // 60} h {mins % 60} min)."
                        + (" Showing the latest saved session." if days else ""))
         else:  # computed right away (the GitHub job starts hours late; its later copy is identical)
-            def run(progress) -> None:
-                snap = realtime.market_snapshot("CN")
-                if checkpoint.session_day(snap) == session:
-                    archive.save_volumes_from_snapshot("CN", snap)
-                closescreen.run(session, progress=progress, workers=checkpoint.WORKERS)
-
-            job = job_runner().submit(("close_screen", str(session), ("16:00",)), run)
+            job = job_runner().submit(("close_screen", str(session)), "close_screen",
+                                      {"day": str(session), "workers": checkpoint.WORKERS})
             if job.active:
                 _job_progress(job, "收盘选股 · 正在计算", "volume, resistance and moving averages", typical=40)
             elif job.state == "failed":
@@ -305,8 +317,9 @@ def _job_progress(job: jobs.Job, what_zh: str = "尾盘选股 · 正在重建检
                   what_en: str = "", typical: float = 90) -> None:
     from ui.progress import job_card
 
-    job_card(job, what_zh, what_en or f"rebuilding {job.key[1]} at {', '.join(job.key[2])} from minute data",
-             typical=typical)
+    if not what_en and job.key[0] == "frontpage":
+        what_en = f"rebuilding {job.key[2]} at {', '.join(job.key[3])} from minute data"
+    job_card(job, what_zh, what_en, typical=typical)
 
 
 def _auction_panel(mkt: str, spec: checkpoint.MarketSpec) -> None:
@@ -487,17 +500,6 @@ def _auction_research(spec: checkpoint.MarketSpec, view: str | None = None, day:
         st.caption("Research tooling, not investment advice. Auction signals are short-lived: check the first "
                    "minutes after 09:30 (does the gap hold, does volume follow through) before acting on any of "
                    "them.")
-
-
-def _strategy_lab() -> None:
-    """The last section: loaded only when opened, so it never slows the front page."""
-    exp = st.expander("Strategy lab · 策略实验室 - test strategies against the market, or set your own parameters",
-                      icon=":material/biotech:", on_change="rerun")
-    if exp.open:
-        with exp:
-            from ui import lab_view
-
-            lab_view.render()
 
 
 def _auction_view(mkt: str, spec: checkpoint.MarketSpec, pre_open: bool) -> None:

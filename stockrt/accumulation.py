@@ -82,18 +82,15 @@ def measures(code: str, day: date, cps: tuple[str, ...]) -> dict | None:
     from .sources import sina
 
     try:
-        sf = sina.minute_flow(code)
+        session, at = sina.minute_flow_at(code, ("09:31", *cps))
     except Exception:  # noqa: BLE001 - nothing for this stock
         return None
-    sf = sf[sf["datetime"].dt.date == day] if not sf.empty else sf
-    if sf.empty:
+    if not at or session != day.isoformat():
         return None
-    flow = dict(zip(sf["datetime"].map(_hhmm), sf["main_net"]))
-    pct_at = dict(zip(sf["datetime"].map(_hhmm), sf["pct"]))
-    out = {"code": code, "flow_09:31": flow.get("09:31", np.nan)}
+    out = {"code": code, "flow_09:31": at.get("09:31", (np.nan, np.nan))[0]}
     for c in cps:
-        out[f"flow_{c}"] = flow.get(c, np.nan)
-        out[f"pct_{c}"] = pct_at.get(c, np.nan)
+        f, pct = at.get(c, (np.nan, np.nan))
+        out[f"flow_{c}"], out[f"pct_{c}"] = f, pct
     return out
 
 
@@ -150,6 +147,30 @@ def apply(frame: pd.DataFrame, cps: tuple[str, ...], p: Params | None = None) ->
     d["hits"] = d[hit_cols].sum(axis=1) if hit_cols else 0
     d["first_hit"] = [next((c for c in cps if r[f"hit_{c}"]), "") for _, r in d.iterrows()] if hit_cols else ""
     return d.sort_values(["hits", "yday_vs_ref"], ascending=False).reset_index(drop=True)
+
+
+def _partial_key(day: date, cps: tuple[str, ...]) -> str:
+    return f"acc_{day.isoformat()}_{'-'.join(c.replace(':', '') for c in cps)}"
+
+
+def save_partial(res: dict) -> None:
+    """Checkpoints reached so far (shared cache; the finished morning goes to the archive)."""
+    from . import storage
+
+    key = _partial_key(res["day"], tuple(res["checkpoints"]))
+    storage.save_frame("accumulation", key, res["frame"])
+    storage.save_json("accumulation", key, {"yesterday": str(res["yesterday"]), "candidates": res["candidates"],
+                                            "notes": res["notes"]})
+
+
+def load_partial(day: date, cps: tuple[str, ...]) -> dict | None:
+    from . import storage
+
+    key = _partial_key(day, cps)
+    frame, meta = storage.load_frame("accumulation", key), storage.load_json("accumulation", key)
+    if frame is None or meta is None:
+        return None
+    return {"day": day, "frame": frame, "checkpoints": cps, **meta}
 
 
 def save(res: dict) -> object:

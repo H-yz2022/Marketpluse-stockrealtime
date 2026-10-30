@@ -197,6 +197,45 @@ def prefilter(snap: pd.DataFrame, p: ScreenParams) -> pd.DataFrame:
     return d[m.fillna(False)]
 
 
+def history_prefilter(cands: pd.DataFrame, p: ScreenParams, day: date, reached: tuple[str, ...],
+                      spec: MarketSpec = CN) -> tuple[pd.DataFrame, int]:
+    """Drop stocks that must fail two or more history rules at every price they traded at today.
+
+    From the saved history panel (no downloads): MA5 crosses above MA10 only above one price, both moving
+    averages rise only above another, and the volume ratio / volume-up rules need at least some volume by
+    the earliest checkpoint - which today's volume so far bounds from above. A stock that can't meet two of
+    these anywhere in today's range can't be in the ranked list (it shows near misses one rule short), so its
+    minute data isn't downloaded. Returns (kept, skipped count)."""
+    from . import panel
+
+    if spec.mkt != "CN" or cands.empty or not reached:
+        return cands, 0
+    frac = min(elapsed_at(spec.mkt, hh) for hh in reached) / total_minutes(spec.mkt)
+    keep = []
+    for r in cands.itertuples():
+        h = panel.history(r.code, day, r.prev_close, min_rows=13)
+        if h is None:
+            keep.append(True)                       # no panel history: decide after downloading
+            continue
+        c = h["close"].to_numpy(dtype=float)
+        v = h["volume"].to_numpy(dtype=float)
+        hi = min(float(r.high), float(r.prev_close) * (1 + (p.pct_max if p.pct_max is not None else 100) / 100))
+        fails = 0
+        if p.golden_cross:
+            spreads = [c[len(c) - 5 - k:len(c) - k].mean() - c[len(c) - 10 - k:len(c) - k].mean() for k in range(3)]
+            fresh = any(sp <= 0 for sp in spreads[:max(p.cross_within, 1)])
+            fails += not (fresh and hi > c[-9:].sum() - 2 * c[-4:].sum())
+        if p.ma_rising:
+            fails += not (hi > max(5 * c[-5:].mean() - c[-4:].sum(), 10 * c[-10:].mean() - c[-9:].sum()))
+        if p.volume_ratio_min is not None:
+            fails += not (float(r.volume) > p.volume_ratio_min * v[-5:].mean() * frac)
+        if p.volume_price_up:
+            fails += not (float(r.volume) > v[-1] * frac)
+        keep.append(fails <= 1)
+    kept = cands[np.array(keep, dtype=bool)]
+    return kept, len(cands) - len(kept)
+
+
 # --------------------------------------------------------------------------- per-stock reconstruction
 
 def past_minutes(day: date) -> Callable[[str], tuple[date, float | None, pd.DataFrame]]:
@@ -477,7 +516,11 @@ def evaluate(snap: pd.DataFrame, p: ScreenParams | None = None, cps: tuple[str, 
     idx = _index_pct(day, reached, spec)
     out["index_pct"] = idx
     cands = prefilter(snap, p)
+    cands, skipped = history_prefilter(cands, p, day, reached, spec)
     out["candidates"] = len(cands)
+    if skipped:
+        out["notes"].append(f"{skipped} stocks couldn't meet two or more of the history rules at any price they "
+                            "traded at today, so they weren't rebuilt.")
     quotes = {r["code"]: r for r in cands.to_dict("records")}
     codes = list(quotes)
     # A checkpoint's picture is fixed once it has passed, so results are cached as soon as they exist.
@@ -644,9 +687,11 @@ def backfill(day: date, p: ScreenParams | None = None, spec: MarketSpec = CN,
     return _assemble(out, rows, quotes, p, idx, cps, spec)
 
 
-def catch_up(lookback: int = 4, progress: Callable[[float, str], None] | None = None) -> list[date]:
+def catch_up(lookback: int = archive.KEEP_SESSIONS - 1,
+             progress: Callable[[float, str], None] | None = None) -> list[date]:
     """Rebuild any of the last `lookback` finished A-share sessions missing from the archive (the minute
-    series only reaches five sessions back). Builds a missing volume book first. Returns the days added."""
+    series only reaches five sessions back). Only sessions inside the rolling window: an older one would be
+    pruned again at once (that loop cost 90 s a run). Builds a missing volume book first. Returns the days added."""
     from . import lab, tradingdays
 
     days, d = [], now_bj().date()

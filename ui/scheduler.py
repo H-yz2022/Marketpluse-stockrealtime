@@ -1,16 +1,20 @@
-"""The site's own clock: each trading day's fixed results are computed on the server at their times.
+"""The site's clock: each trading day's fixed results, queued in the worker at their times, with deadlines.
 
-The GitHub job publishes durable copies, but it starts hours late; this makes sure that, whenever the
-server is awake, the morning screen is ready after 11:15, the A-share close after 15:00, 长线 after 15:05,
-收盘选股 at 16:00 and Hong Kong after its close - before anyone has to wait for them. (A free Render server
-sleeps after 15 idle minutes; an uptime pinger keeps it awake, see README.)
+Every 30 seconds it looks at what is already saved on disk (so a restart loses nothing) and queues whatever
+is due and missing into the worker process - never running anything heavy itself, so the web server keeps
+answering Render's health check. A task still missing 10 minutes after an attempt is retried; one missing
+past its deadline is shown as late. The GitHub job publishes durable copies later (it starts hours late).
+A free Render server sleeps after 15 idle minutes, and while asleep nothing runs: an uptime monitor pinging
+the site keeps it awake (see README).
 """
 
 from __future__ import annotations
 
 import logging
 import threading
-import time
+import time as _time
+from dataclasses import dataclass
+from datetime import date, datetime, time
 
 import streamlit as st
 
@@ -18,40 +22,67 @@ from stockrt import sample, tradingdays
 from stockrt.calendar import now_bj
 
 log = logging.getLogger(__name__)
-
-TASKS = (("accumulation", "11:16"), ("cn_close", "15:03"), ("longterm", "15:06"), ("close_screen", "16:01"),
-         ("hk_close", "16:12"))
+RETRY = 10 * 60
 
 
-def _run(name: str, day) -> None:
-    from stockrt import accumulation, archive, checkpoint, closescreen, longterm, realtime
+@dataclass(frozen=True)
+class Task:
+    name: str
+    label: str
+    start: time
+    deadline: time
+    mkt: str = "CN"
 
-    if name == "accumulation":
-        if accumulation.load(day) is None:
-            accumulation.save(accumulation.compute(day, realtime.market_snapshot("CN"), accumulation.CHECKPOINTS,
-                                                   workers=checkpoint.WORKERS))
-    elif name == "cn_close":
-        snap = realtime.market_snapshot("CN")
-        archive.save_volumes_from_snapshot("CN", snap)
-        if day not in archive.sessions("CN"):
-            checkpoint.evaluate(snap)
-    elif name == "longterm":
-        if longterm.load(day) is None:
-            snap = realtime.market_snapshot("CN")
-            if checkpoint.session_day(snap) == day:
-                longterm.run(day, snap, workers=checkpoint.WORKERS)
-    elif name == "close_screen":
-        if day not in archive.screen_days() and day in archive.volume_days("CN"):
-            closescreen.run(day, workers=checkpoint.WORKERS)
-    elif name == "hk_close":
-        if day not in archive.sessions("HK"):
-            checkpoint.evaluate(realtime.market_snapshot("HK"), spec=checkpoint.SPECS["HK"])
+
+TASKS = (
+    Task("accumulation", "主力暗中吸筹", time(11, 16), time(11, 40)),
+    Task("cn_close", "尾盘选股 15:00", time(15, 2), time(15, 20)),
+    Task("longterm", "长线", time(15, 6), time(15, 40)),
+    Task("close_screen", "收盘选股", time(16, 1), time(16, 20)),
+    Task("hk_close", "港股 16:00", time(16, 12), time(16, 40), mkt="HK"),
+)
+
+
+def _done(t: Task, day: date) -> bool:
+    from stockrt import accumulation, archive, longterm
+
+    if t.name == "accumulation":
+        return accumulation.load(day) is not None
+    if t.name == "cn_close":
+        return day in archive.sessions("CN")
+    if t.name == "longterm":
+        return longterm.load(day) is not None
+    if t.name == "close_screen":
+        return day in archive.screen_days()
+    return day in archive.sessions("HK")
+
+
+def _submit(t: Task, day: date, force: bool):
+    from stockrt import accumulation, checkpoint
+    from stockrt.screener import ScreenParams
+    from ui.picks_view import frontpage_key, job_runner
+    from ui.screens_view import acc_key, longterm_key
+
+    r, w = job_runner(), checkpoint.WORKERS
+    if t.name == "accumulation":
+        return r.submit(acc_key(day, accumulation.CHECKPOINTS), "accumulation",
+                        {"day": str(day), "reached": list(accumulation.CHECKPOINTS), "workers": w}, force=force)
+    if t.name in ("cn_close", "hk_close"):
+        spec = checkpoint.SPECS[t.mkt]
+        return r.submit(frontpage_key(t.mkt, day, spec.checkpoints, ScreenParams()), "frontpage",
+                        {"mkt": t.mkt, "day": str(day), "params": ScreenParams().to_dict(), "use_cache": True},
+                        force=force)
+    if t.name == "longterm":
+        return r.submit(longterm_key(day), "longterm", {"day": str(day), "workers": w}, force=force)
+    return r.submit(("close_screen", str(day)), "close_screen", {"day": str(day), "workers": w}, force=force)
 
 
 class Scheduler:
     def __init__(self) -> None:
-        self.done: set[tuple[str, str]] = set()
+        self.attempts: dict[tuple[str, str], float] = {}
+        self.jobs: dict[tuple[str, str], object] = {}
         self.last_error: str | None = None
+        self.last_sync = 0.0
         threading.Thread(target=self._loop, daemon=True, name="site-scheduler").start()
 
     def _loop(self) -> None:
@@ -61,24 +92,64 @@ class Scheduler:
             except Exception as e:  # noqa: BLE001 - keep the clock running
                 self.last_error = f"{now_bj():%H:%M} {e}"
                 log.warning("scheduler: %s", e)
-            time.sleep(30)
+            _time.sleep(30)
 
-    def tick(self) -> None:
+    def tick(self, now: datetime | None = None) -> None:
         if sample.is_sample():
             return
-        now = now_bj()
-        day = now.date()
-        if now.weekday() >= 5 or tradingdays.is_trading_day("CN", day) is False:
-            return
-        from ui.picks_view import job_runner
-
-        hhmm = now.strftime("%H:%M")
-        for name, at in TASKS:
-            key = (name, str(day))
-            if key in self.done or hhmm < at:
+        now = now or now_bj()
+        self._sync(now)
+        for t in TASKS:
+            day = now.date()
+            if now.time() < t.start or tradingdays.is_trading_day(t.mkt, day) is False or now.weekday() >= 5:
                 continue
-            self.done.add(key)
-            job_runner().submit(("scheduled", name, str(day)), lambda progress, n=name: _run(n, day))
+            key = (t.name, str(day))
+            if _done(t, day):
+                continue
+            job = self.jobs.get(key)
+            if job is not None and job.active:
+                continue
+            last = self.attempts.get(key)
+            if last is not None and _time.time() - last < RETRY:
+                continue
+            self.attempts[key] = _time.time()
+            self.jobs[key] = _submit(t, day, force=last is not None)
+
+    def _sync(self, now: datetime) -> None:
+        """Every 5 minutes: queue a download when newer results have been published."""
+        from stockrt import published
+
+        if _time.time() - self.last_sync < 300:
+            return
+        self.last_sync = _time.time()
+        if published.needs_download():
+            from ui.picks_view import job_runner
+
+            job_runner().submit(("sync", int(_time.time() // 300)), "sync", {})
+
+    def status(self, now: datetime | None = None) -> list[dict]:
+        """Today's automatic updates: waiting / running / done / late / failed - for the sidebar."""
+        now = now or now_bj()
+        day = now.date()
+        out = []
+        for t in TASKS:
+            if now.weekday() >= 5 or tradingdays.is_trading_day(t.mkt, day) is False:
+                continue
+            key = (t.name, str(day))
+            job = self.jobs.get(key)
+            if _done(t, day):
+                state = "done"
+            elif job is not None and job.active:
+                state = "running"
+            elif now.time() < t.start:
+                state = "waiting"
+            elif job is not None and job.state == "failed":
+                state = "failed"
+            else:
+                state = "late" if now.time() > t.deadline else "due"
+            out.append({"label": t.label, "at": t.start.strftime("%H:%M"), "state": state,
+                        "error": getattr(job, "error", None) if state == "failed" else None})
+        return out
 
 
 @st.cache_resource

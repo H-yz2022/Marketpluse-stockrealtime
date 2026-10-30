@@ -70,6 +70,7 @@ def test_sync_switches_to_the_published_folder(tmp_path, monkeypatch):
 def test_nothing_published_keeps_local(tmp_path, monkeypatch):
     local = tmp_path / "local"
     monkeypatch.setattr(archive, "RESULTS_DIR", local)
+    monkeypatch.setattr(published, "SYNC_DIR", tmp_path / "published")
     monkeypatch.setattr(published, "repo", lambda: "me/repo")
     monkeypatch.setattr(published, "enabled", lambda: True)
     monkeypatch.setattr(published, "_state", {"checked": 0.0, "stamp": None, "dir": None, "error": None})

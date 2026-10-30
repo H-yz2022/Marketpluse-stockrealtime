@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from stockrt import checkpoint, lab, labpools, published, sample
+from stockrt import checkpoint, lab, labpools, sample
 from stockrt.calendar import now_bj, status
 from stockrt.export import to_csv_bytes
 from stockrt.labdata import EXIT_LABEL, EXITS
@@ -62,12 +62,6 @@ def _names() -> dict[str, str]:
         return dict(zip(u["code"], u["name"]))
     except Exception:  # noqa: BLE001 - names are a nicety
         return {}
-
-
-@st.cache_resource
-def today_memo() -> dict:
-    """Today's computed signals per (session, reached signal times), shared by every visitor."""
-    return {}
 
 
 def _badge(v: str) -> str:
@@ -294,37 +288,20 @@ def _today(stamp: str) -> None:
                    "(fixed).")
         _show_today(recorded, {}, day)
         return
-    times = [t for t in lab.SIGNAL_ORDER if not live_day or lab.reached(t, now)]
+    times = tuple(t for t in lab.SIGNAL_ORDER if not live_day or lab.reached(t, now))
     if not times:
         st.caption("No signal time has passed yet today.")
         return
-    key = ("lab_today", str(day), tuple(times))
-    memo = today_memo()
-    if over and published.await_close("CN", day):
-        st.info("The market has closed. Today's signals are recorded once by the daily update and then shown here, "
-                "fixed.", icon=":material/lock_clock:")
-        earlier = [k for k in memo if k[:2] == key[:2]]
-        if earlier:
-            res = memo[max(earlier, key=lambda k: len(k[2]))]
-            st.caption(f"Provisional, computed during the session at {res['computed']} Beijing:")
-            _show_today(res["picks"], res["pending"], day)
-        return
-    if key not in memo:
-        def run(progress) -> None:
-            from stockrt import realtime
-
-            memo[key] = lab.today(realtime.market_snapshot("CN"), progress, workers=checkpoint.WORKERS)
-
-        job = job_runner().submit(key, run)
+    res = lab.load_today(day)
+    if res is None or tuple(res["times"]) != times:
+        job = job_runner().submit(("lab_today", str(day), times), "lab_today", {"workers": checkpoint.WORKERS})
         if job.active:
             from ui.progress import job_card
 
-            job_card(job, "策略实验室 · 正在读取今日信号", "reading today's signals for every strategy", typical=60)
-            return
-        if job.state == "failed":
+            job_card(job, "策略实验室 · 正在读取今日信号", "reading today's signals for every strategy", typical=90)
+        elif job.state == "failed":
             st.warning(f"Today's signals couldn't be read ({job.error}).", icon=":material/warning:")
-            return
-    res = memo.get(key)
+        res = lab.load_today(day) or res
     if res is None:
         return
     when = "today" if live_day else f"{pd.Timestamp(day):%a %d %b}"

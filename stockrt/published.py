@@ -105,8 +105,87 @@ def _safe_extract(data: bytes, dest: Path) -> Path:
     return dest / root
 
 
+def _pointer() -> Path:
+    return SYNC_DIR / "current.json"
+
+
+def use_current() -> dict:
+    """Point the app at the results folder the last download produced (a small file read - safe to call on
+    every page run; the download itself happens in the worker)."""
+    if not enabled():
+        return {"source": "local"}
+    try:
+        cur = json.loads(_pointer().read_text(encoding="utf-8")) if _pointer().exists() else {}
+    except (OSError, ValueError):
+        cur = {}
+    path = Path(cur["dir"]) if cur.get("dir") else None
+    if path is not None and path.exists():
+        archive.RESULTS_DIR = path
+        _state.update(stamp=cur.get("stamp"), dir=path)
+    return _status()
+
+
+def published_stamp() -> str | None:
+    """The stamp of the newest publication (one small request)."""
+    r = requests.get(f"https://raw.githubusercontent.com/{repo()}/{BRANCH}/manifest.json",
+                     params={"t": int(time.time() // 60)}, timeout=8)
+    if r.status_code == 404:
+        return None
+    r.raise_for_status()
+    return r.json().get("updated")
+
+
+def needs_download() -> bool:
+    """At most once a minute: has something newer been published than the folder in use? (Web process.)"""
+    if not enabled():
+        return False
+    with _lock:
+        now = time.time()
+        if now - _state["checked"] < MIN_INTERVAL:
+            return False
+        _state["checked"] = now
+    try:
+        stamp = published_stamp()
+    except Exception as e:  # noqa: BLE001 - keep what we have
+        _state["error"] = f"{type(e).__name__}: {str(e)[:120]}"
+        return False
+    return bool(stamp) and stamp != _state.get("stamp")
+
+
+def download(force: bool = False) -> str | None:
+    """Download and unpack the newest publication, keep anything this server computed that it doesn't have
+    yet, and switch the pointer. (Runs in the worker process.)"""
+    use_current()
+    stamp = published_stamp()
+    if not stamp or (stamp == _state.get("stamp") and not force):
+        return _state.get("stamp")
+    t = requests.get(f"https://codeload.github.com/{repo()}/tar.gz/refs/heads/{BRANCH}", timeout=60)
+    t.raise_for_status()
+    folder = re.sub(r"[^0-9A-Za-z]", "", stamp)
+    path = _safe_extract(t.content, SYNC_DIR / folder)
+    old = _state.get("dir")
+    if old and Path(old).exists() and Path(old) != path:
+        for f in Path(old).rglob("*"):           # results this server computed since the last publication
+            target = path / f.relative_to(old)
+            if f.is_file() and not target.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(f, target)
+    tmp = _pointer().with_suffix(".tmp")
+    tmp.write_text(json.dumps({"dir": str(path), "stamp": stamp, "at": time.time()}), encoding="utf-8")
+    import os
+
+    os.replace(tmp, _pointer())
+    for d in SYNC_DIR.iterdir():                  # older folders
+        if d.is_dir() and d != path.parent:
+            shutil.rmtree(d, ignore_errors=True)
+    archive.RESULTS_DIR = path
+    _state.update(stamp=stamp, dir=path, error=None)
+    log.info("published results %s -> %s", stamp, path)
+    return stamp
+
+
 def sync(force: bool = False) -> dict:
-    """Point the app at the newest published results (at most one manifest check a minute)."""
+    """Download (if newer) and use the published results, in this process - for scripts and tests."""
     if not enabled():
         return {"source": "local"}
     with _lock:
@@ -114,31 +193,12 @@ def sync(force: bool = False) -> dict:
         if not force and now - _state["checked"] < MIN_INTERVAL:
             return _status()
         _state["checked"] = now
-        name = repo()
-        try:
-            r = requests.get(f"https://raw.githubusercontent.com/{name}/{BRANCH}/manifest.json",
-                             params={"t": int(now // 60)}, timeout=8)
-            if r.status_code == 404:
-                _state["error"] = "nothing published yet"
-                return _status()
-            r.raise_for_status()
-            stamp = r.json().get("updated")
-            if stamp and stamp == _state["stamp"]:
-                return _status()
-            t = requests.get(f"https://codeload.github.com/{name}/tar.gz/refs/heads/{BRANCH}", timeout=30)
-            t.raise_for_status()
-            folder = re.sub(r"[^0-9A-Za-z]", "", stamp or str(int(now)))
-            path = _safe_extract(t.content, SYNC_DIR / folder)
-            old = _state["dir"]
-            archive.RESULTS_DIR = path
-            _state.update(stamp=stamp, dir=path, error=None)
-            if old and old != path:
-                shutil.rmtree(old.parent, ignore_errors=True)
-            log.info("published results %s -> %s", stamp, path)
-        except Exception as e:  # noqa: BLE001 - keep showing what we have
-            _state["error"] = f"{type(e).__name__}: {str(e)[:120]}"
-            log.info("published results unavailable: %s", e)
-        return _status()
+    try:
+        download()
+    except Exception as e:  # noqa: BLE001 - keep showing what we have
+        _state["error"] = f"{type(e).__name__}: {str(e)[:120]}"
+        log.info("published results unavailable: %s", e)
+    return _status()
 
 
 def _status() -> dict:

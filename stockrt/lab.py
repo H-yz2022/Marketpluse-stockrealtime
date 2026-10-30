@@ -634,6 +634,30 @@ def today(snap: pd.DataFrame, progress: Callable[[float, str], None] | None = No
             "computed": now.strftime("%H:%M:%S"), "candidates": len(codes)}
 
 
+def save_today(res: dict) -> None:
+    """Today's signals, computed by the worker, for the page to read (shared cache)."""
+    from . import storage
+
+    key = f"today_{res['day'].isoformat()}"
+    picks = res["picks"].reset_index(drop=True).copy()
+    if "all" in picks:   # True / False / unknown, stored as text-free booleans with blanks
+        picks["all"] = picks["all"].map(lambda v: None if v is None or (isinstance(v, float) and np.isnan(v))
+                                        else bool(v)).astype("boolean")
+    storage.save_frame("lab", key, picks)
+    storage.save_json("lab", key, {"times": list(res["times"]), "pending": res["pending"], "cut": res["cut"],
+                                   "computed": res["computed"], "candidates": res["candidates"]})
+
+
+def load_today(day: date) -> dict | None:
+    from . import storage
+
+    key = f"today_{day.isoformat()}"
+    picks, meta = storage.load_frame("lab", key), storage.load_json("lab", key)
+    if picks is None or meta is None:
+        return None
+    return {"day": day, "picks": picks, **meta, "times": tuple(meta["times"])}
+
+
 # --------------------------------------------------------------------------- static report
 
 def write_report(exit: str = "t1_close") -> None:
