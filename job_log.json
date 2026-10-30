@@ -1,0 +1,786 @@
+[
+ {
+  "at": "2026-10-31 00:10",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 3,
+    "result": "already saved"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-30 already saved"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": true,
+    "seconds": 2,
+    "result": "2026-10-30 checkpoints ['15:00', '15:30', '16:00']"
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 1,
+    "result": "{'recorded': [], 'filled': 0, 'note': 'up to date'}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 0,
+    "result": "none missing"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 58,
+    "result": "2026-10-26: 8 of 1628"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-30 already saved"
+   },
+   {
+    "step": "主力暗中吸筹 (morning checkpoints)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-30 already saved"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to 2026-10-30"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "0 session files, 0 volume books and 0 screen files, 0 other files removed"
+   }
+  ]
+ },
+ {
+  "at": "2026-10-30 23:00",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 2,
+    "result": "already saved"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-30 already saved"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": false,
+    "seconds": 3,
+    "error": "RuntimeError: 2026-10-30: No stock could be rebuilt for this session.",
+    "where": "                                                ^^^^^^^^^^^ |   File \"/home/runner/work/Marketpluse-stockrealtime/Marketpluse-stockrealtime/scripts/daily_update.py\", line 117, in front |     raise RuntimeError(f\"{res['day']}: \" + (\"; \".join(res[\"notes\"]) or f\"pending {res.get('pending')}\")) | RuntimeError: 2026-10-30: No stock could be rebuilt for this session."
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 1,
+    "result": "{'recorded': [], 'filled': 0, 'note': 'up to date'}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 0,
+    "result": "none missing"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to date"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-30 already saved"
+   },
+   {
+    "step": "主力暗中吸筹 (morning checkpoints)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-30 already saved"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to 2026-10-30"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "0 session files, 0 volume books and 0 screen files, 0 other files removed"
+   }
+  ]
+ },
+ {
+  "at": "2026-10-30 22:59",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 2,
+    "result": "already saved"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-30 already saved"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": false,
+    "seconds": 2,
+    "error": "RuntimeError: 2026-10-30: No stock could be rebuilt for this session.",
+    "where": "                                                ^^^^^^^^^^^ |   File \"/home/runner/work/Marketpluse-stockrealtime/Marketpluse-stockrealtime/scripts/daily_update.py\", line 117, in front |     raise RuntimeError(f\"{res['day']}: \" + (\"; \".join(res[\"notes\"]) or f\"pending {res.get('pending')}\")) | RuntimeError: 2026-10-30: No stock could be rebuilt for this session."
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 1,
+    "result": "{'recorded': [], 'filled': 0, 'note': 'up to date'}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 0,
+    "result": "none missing"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to date"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-30 already saved"
+   },
+   {
+    "step": "主力暗中吸筹 (morning checkpoints)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-30 already saved"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to 2026-10-30"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "0 session files, 0 volume books and 0 screen files, 0 other files removed"
+   }
+  ]
+ },
+ {
+  "at": "2026-10-30 22:30",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 2,
+    "result": "already saved"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-30 already saved"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": false,
+    "seconds": 2,
+    "error": "RuntimeError: 2026-10-30: No stock could be rebuilt for this session.",
+    "where": "                                                ^^^^^^^^^^^ |   File \"/home/runner/work/Marketpluse-stockrealtime/Marketpluse-stockrealtime/scripts/daily_update.py\", line 117, in front |     raise RuntimeError(f\"{res['day']}: \" + (\"; \".join(res[\"notes\"]) or f\"pending {res.get('pending')}\")) | RuntimeError: 2026-10-30: No stock could be rebuilt for this session."
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 1,
+    "result": "{'recorded': [], 'filled': 0, 'note': 'up to date'}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 0,
+    "result": "none missing"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to date"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-30 already saved"
+   },
+   {
+    "step": "主力暗中吸筹 (morning checkpoints)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-30 already saved"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to 2026-10-30"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "0 session files, 0 volume books and 0 screen files, 0 other files removed"
+   }
+  ]
+ },
+ {
+  "at": "2026-10-30 22:12",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 3,
+    "result": "/home/runner/work/Marketpluse-stockrealtime/Marketpluse-stockrealtime/results/cn/volumes/2026-10-30.parquet"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 16,
+    "result": "2026-10-30 checkpoints ['14:00', '14:30', '15:00']"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": false,
+    "seconds": 2,
+    "error": "RuntimeError: 2026-10-30: No stock could be rebuilt for this session.",
+    "where": "                                                ^^^^^^^^^^^ |   File \"/home/runner/work/Marketpluse-stockrealtime/Marketpluse-stockrealtime/scripts/daily_update.py\", line 117, in front |     raise RuntimeError(f\"{res['day']}: \" + (\"; \".join(res[\"notes\"]) or f\"pending {res.get('pending')}\")) | RuntimeError: 2026-10-30: No stock could be rebuilt for this session."
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 429,
+    "result": "{'recorded': ['2026-10-30'], 'new_picks': 227, 'filled': 1069}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 0,
+    "result": "none missing"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 6,
+    "result": "2026-10-30: 6 of 166"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 35,
+    "result": "2026-10-30: 4 of 376"
+   },
+   {
+    "step": "主力暗中吸筹 (morning checkpoints)",
+    "ok": true,
+    "seconds": 244,
+    "result": "2026-10-30: 47 of 535"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 94,
+    "result": "/home/runner/work/Marketpluse-stockrealtime/Marketpluse-stockrealtime/results/cn/panel.parquet"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "4 session files, 1 volume books and 3 screen files, 4 other files removed"
+   }
+  ]
+ },
+ {
+  "at": "2026-10-30 00:21",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 5,
+    "result": "already saved"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-29 already saved"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": true,
+    "seconds": 1,
+    "result": "2026-10-29 already saved"
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 2,
+    "result": "{'recorded': [], 'filled': 0, 'note': 'up to date'}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 0,
+    "result": "none missing"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to date"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-29 already saved"
+   },
+   {
+    "step": "主力暗中吸筹 (morning checkpoints)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-29 already saved"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to 2026-10-29"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "0 session files, 0 volume books and 0 screen files, 0 other files removed"
+   }
+  ]
+ },
+ {
+  "at": "2026-10-29 23:15",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 3,
+    "result": "already saved"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-29 already saved"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": true,
+    "seconds": 1,
+    "result": "2026-10-29 already saved"
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 1,
+    "result": "{'recorded': [], 'filled': 0, 'note': 'up to date'}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 93,
+    "result": "['2026-10-23']"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to date"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-29 already saved"
+   },
+   {
+    "step": "主力暗中吸筹 (morning checkpoints)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-29 already saved"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to 2026-10-29"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "4 session files, 0 volume books and 0 screen files, 0 other files removed"
+   }
+  ]
+ },
+ {
+  "at": "2026-10-29 23:12",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 3,
+    "result": "already saved"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-29 already saved"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": true,
+    "seconds": 1,
+    "result": "2026-10-29 already saved"
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 1,
+    "result": "{'recorded': [], 'filled': 0, 'note': 'up to date'}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 116,
+    "result": "['2026-10-23']"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to date"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-29 already saved"
+   },
+   {
+    "step": "主力暗中吸筹 (morning checkpoints)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-29 already saved"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to 2026-10-29"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "4 session files, 0 volume books and 0 screen files, 0 other files removed"
+   }
+  ]
+ },
+ {
+  "at": "2026-10-29 22:40",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 3,
+    "result": "already saved"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-29 already saved"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": true,
+    "seconds": 1,
+    "result": "2026-10-29 already saved"
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 2,
+    "result": "{'recorded': [], 'filled': 0, 'note': 'up to date'}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 91,
+    "result": "['2026-10-23']"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to date"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-29 already saved"
+   },
+   {
+    "step": "主力暗中吸筹 (morning checkpoints)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-29 already saved"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to 2026-10-29"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "4 session files, 0 volume books and 0 screen files, 0 other files removed"
+   }
+  ]
+ },
+ {
+  "at": "2026-10-29 22:18",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 3,
+    "result": "/home/runner/work/Marketpluse-stockrealtime/Marketpluse-stockrealtime/results/cn/volumes/2026-10-29.parquet"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 14,
+    "result": "2026-10-29 checkpoints ['14:00', '14:30', '15:00']"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": true,
+    "seconds": 5,
+    "result": "2026-10-29 checkpoints ['15:00', '15:30', '16:00']"
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 499,
+    "result": "{'recorded': ['2026-10-29'], 'new_picks': 255, 'filled': 1525}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 0,
+    "result": "none missing"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 6,
+    "result": "2026-10-29: 9 of 134"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 32,
+    "result": "2026-10-29: 3 of 284"
+   },
+   {
+    "step": "主力暗中吸筹 (morning checkpoints)",
+    "ok": true,
+    "seconds": 59,
+    "result": "2026-10-29: 36 of 641"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 95,
+    "result": "/home/runner/work/Marketpluse-stockrealtime/Marketpluse-stockrealtime/results/cn/panel.parquet"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "8 session files, 1 volume books and 3 screen files, 4 other files removed"
+   }
+  ]
+ },
+ {
+  "at": "2026-10-29 00:13",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 2,
+    "result": "already saved"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-28 already saved"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": true,
+    "seconds": 1,
+    "result": "2026-10-28 already saved"
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 1,
+    "result": "{'recorded': [], 'filled': 0, 'note': 'up to date'}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 0,
+    "result": "none missing"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to date"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-28 already saved"
+   },
+   {
+    "step": "主力暗中吸筹 (morning checkpoints)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-28 already saved"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to 2026-10-28"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "0 session files, 0 volume books and 0 screen files, 0 other files removed"
+   }
+  ]
+ },
+ {
+  "at": "2026-10-28 23:05",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 2,
+    "result": "already saved"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-28 already saved"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": true,
+    "seconds": 1,
+    "result": "2026-10-28 already saved"
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 1,
+    "result": "{'recorded': [], 'filled': 0, 'note': 'up to date'}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 51,
+    "result": "['2026-10-22']"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to date"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-28 already saved"
+   },
+   {
+    "step": "主力暗中吸筹 (morning checkpoints)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-10-28 already saved"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to 2026-10-28"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "4 session files, 0 volume books and 0 screen files, 0 other files removed"
+   }
+  ]
+ }
+]
