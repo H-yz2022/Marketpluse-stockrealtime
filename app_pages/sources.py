@@ -109,7 +109,7 @@ st.caption(f"Cache: {CACHE_DIR} · Captures: {SNAPSHOT_DIR}")
 
 from stockrt import archive, published  # noqa: E402
 
-pub = published.sync()
+pub = published.use_current()
 man = published.manifest()
 st.markdown("**Published results** · computed once after each close by the daily update (GitHub Actions)")
 st.caption(f"Repository: {published.repo() or '—'} · branch `{published.BRANCH}` · in use: {pub.get('source')} · "
@@ -128,3 +128,28 @@ if job_log.exists():
             for x in r["steps"]:
                 st.caption(f"{'✓' if x['ok'] else '✗'} {x['step']} ({x['seconds']}s): "
                            f"{x.get('result') or x.get('error', '')}")
+
+if not sample.is_sample():
+    from ui.picks_view import job_runner
+
+    st.markdown("**网站后台任务日志 · Site job log** · every background run on this server, newest first")
+    entries = job_runner().history(60)
+    starts = [e["at"] for e in entries if e.get("event") == "server_start"]
+    st.caption((f"This server last started at {starts[0]} Beijing; the log begins there (a free server's disk is "
+                "wiped when it restarts - Render's **Logs** tab keeps the same lines, each starting `[job]`). "
+                if starts else "") + "The GitHub job's own log is under *Daily update runs* above.")
+    runs = [e for e in entries if e.get("task")]
+    if runs:
+        st.dataframe(pd.DataFrame(runs).reindex(columns=["at", "task", "mkt", "day", "state", "seconds", "attempt",
+                                                         "error", "result", "where"]),
+                     hide_index=True, column_config={
+                         "at": st.column_config.TextColumn("Finished (Beijing)"),
+                         "task": st.column_config.TextColumn("Job"), "mkt": st.column_config.TextColumn("Market"),
+                         "day": st.column_config.TextColumn("Session"), "state": st.column_config.TextColumn("Result"),
+                         "seconds": st.column_config.NumberColumn("Seconds"),
+                         "attempt": st.column_config.NumberColumn("Attempt"),
+                         "error": st.column_config.TextColumn("Error", width="large"),
+                         "result": st.column_config.TextColumn("Outcome"),
+                         "where": st.column_config.TextColumn("Where")})
+    else:
+        st.caption("No background job has finished since this server started.")

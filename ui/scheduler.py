@@ -83,6 +83,8 @@ class Scheduler:
         self.jobs: dict[tuple[str, str], object] = {}
         self.last_error: str | None = None
         self.last_sync = 0.0
+        self.first_sync = None          # the download a freshly started server does before anything else
+        self.sync_checked = False
         threading.Thread(target=self._loop, daemon=True, name="site-scheduler").start()
 
     def _loop(self) -> None:
@@ -99,6 +101,8 @@ class Scheduler:
             return
         now = now or now_bj()
         self._sync(now)
+        if self.first_sync is not None and self.first_sync.active:
+            return                      # what's already published must not be recomputed
         for t in TASKS:
             day = now.date()
             if now.time() < t.start or tradingdays.is_trading_day(t.mkt, day) is False or now.weekday() >= 5:
@@ -116,16 +120,26 @@ class Scheduler:
             self.jobs[key] = _submit(t, day, force=last is not None)
 
     def _sync(self, now: datetime) -> None:
-        """Every 5 minutes: queue a download when newer results have been published."""
+        """Every 5 minutes: queue a download when newer results have been published (next in the queue)."""
         from stockrt import published
 
+        published.use_current()
         if _time.time() - self.last_sync < 300:
             return
         self.last_sync = _time.time()
-        if published.needs_download():
-            from ui.picks_view import job_runner
+        try:
+            if published.needs_download():
+                from ui.picks_view import job_runner
 
-            job_runner().submit(("sync", int(_time.time() // 300)), "sync", {})
+                job = job_runner().submit(("sync", int(_time.time() // 300)), "sync", {}, front=True)
+                self.first_sync = self.first_sync or job
+        finally:
+            self.sync_checked = True
+
+    @property
+    def syncing(self) -> bool:
+        """A freshly started server is still fetching the published results (its disk starts empty)."""
+        return not self.sync_checked or (self.first_sync is not None and self.first_sync.active)
 
     def status(self, now: datetime | None = None) -> list[dict]:
         """Today's automatic updates: waiting / running / done / late / failed - for the sidebar."""

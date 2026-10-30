@@ -77,11 +77,9 @@ def accumulation_section() -> None:
     if res is None and reached:
         job = _runner().submit(acc_key(day, reached), "accumulation",
                                {"day": str(day), "reached": list(reached), "workers": checkpoint.WORKERS})
-        if job.active:
+        if job.active or job.state == "failed":
             job_card(job, "主力暗中吸筹 · 正在读取分时资金流", f"reading each candidate's minute money flow for "
                      f"{', '.join(reached)}", typical=90)
-        elif job.state == "failed":
-            st.warning(f"The accumulation screen couldn't be computed ({job.error}).", icon=":material/warning:")
         res = accumulation.load_partial(day, reached)
     if res is None:
         older = [d for d in accumulation.days() if d < day]
@@ -154,10 +152,8 @@ def longterm_section() -> None:
     res = longterm.load(day) if closed else None
     if res is None and closed:
         job = _runner().submit(longterm_key(day), "longterm", {"day": str(day), "workers": checkpoint.WORKERS})
-        if job.active:
+        if job.active or job.state == "failed":
             job_card(job, "长线 · 正在计算收盘数据", "institutions, 10-day flow and moving averages", typical=60)
-        elif job.state == "failed":
-            st.warning(f"The 长线 screen couldn't be computed ({job.error}).", icon=":material/warning:")
         res = longterm.load(day)
     if res is None:
         older = [d for d in longterm.days() if d < day or not closed]

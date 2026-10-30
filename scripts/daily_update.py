@@ -13,14 +13,15 @@ does the work.
    has closed (16:10 Beijing).
 3. Strategy lab: today's picks for every strategy, with the live-only checks (main-fund flow, auction
    volume), and the exits of earlier picks.
-4. Catch-up: any of the last 4 sessions missing from the front page is rebuilt (the minute series
+4. Catch-up: any of the last few sessions missing from the front page is rebuilt (the minute series
    reaches five sessions back); a session rebuilt with Sina's money flow is redone once East
    Money answers again.
 5. 收盘选股 (成交量翻倍，突破压力位，换手率＞3%，站上牛熊线), 长线 (the long-term screen on closing data) and
    主力暗中吸筹 (the morning checkpoints, from each stock's minute money flow); then the history panel - the
    last 30 sessions of every stock - so tomorrow's live updates download only intraday data.
-6. Rolling window: only the newest 4 sessions and 5 volume books are kept, so the data never piles up
-   (the Strategy lab's log is kept whole: it is the test itself, and grows by a few MB a year).
+6. Rolling window: the front page's Past sessions list grows slowly (the newest 5 sessions in full, older ones
+   compacted to the ranked list, up to a year); the other screens keep 5 sessions and 5 volume books (the
+   Strategy lab's log is kept whole: it is the test itself, and grows by a few MB a year).
 7. job_log.json (what each run did, including errors) and manifest.json, which tells the website that new
    results are published.
 
@@ -157,6 +158,7 @@ def main() -> int:
                                          f"session files, {len(archive.prune_volumes('CN'))} volume books and "
                                          f"{len(archive.prune_screens())} screen files, "
                                          f"{len(longterm.prune()) + len(accumulation.prune())} other files removed")
+    archive.write_index()
     archive.write_job_log(LOG, now_bj())
     ok &= step("Manifest", lambda: archive.write_manifest(now_bj()))
     return 0 if ok else 1

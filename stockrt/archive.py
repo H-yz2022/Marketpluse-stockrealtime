@@ -90,8 +90,9 @@ def write_index() -> Path:
     lines = ["# Archived sessions", "",
              "Every finished 尾盘选股 session, kept as static files: `<date>.md` (readable here on GitHub), "
              "`<date>.csv` (ranked list) and `<date>.parquet` + `.json` (everything the app needs). "
-             "`volumes/` holds each session's closing volumes for the opening-auction queries. Only the newest "
-             f"{KEEP_SESSIONS} sessions and {KEEP_BOOKS} volume books are kept: the daily job drops older ones.", "",
+             "`volumes/` holds each session's closing volumes for the opening-auction queries. The newest "
+             f"{KEEP_SESSIONS} sessions keep every candidate; older ones keep the ranked list and the closest stocks, "
+             f"up to {KEEP_HISTORY} sessions. {KEEP_BOOKS} volume books are kept.", "",
              "The Strategy lab's scorecards (backtest and live record) are in [lab/README.md](lab/README.md). "
              "The 16:00 after-close screen (收盘选股) is in `cn/screens/<date>.md`.", ""]
     for mkt in ("CN", "HK"):
@@ -123,7 +124,7 @@ def load(mkt: str, day: date) -> dict | None:
     frames = {c: rows[rows["checkpoint"] == c].reset_index(drop=True) for c in meta["checkpoints"]}
     return {"day": day, "frames": frames, "index_pct": meta["index_pct"], "pending": [], "notes": meta["notes"],
             "candidates": meta["candidates"], "flow_checked": meta.get("flow_checked", True),
-            "params": meta.get("params"), "source": "archive"}
+            "params": meta.get("params"), "source": "archive", "compact": meta.get("compact", False)}
 
 
 def sessions(mkt: str) -> list[date]:
@@ -164,20 +165,50 @@ def load_volumes(mkt: str, before: date) -> tuple[date, pd.DataFrame] | None:
     return days[0], pd.read_parquet(path)
 
 
-KEEP_SESSIONS = 4   # front-page sessions kept (the newest; the daily job prunes the rest)
+KEEP_SESSIONS = 5   # sessions kept in full (a trading week); the other screens keep this many too
+KEEP_HISTORY = 250  # front-page sessions kept in the Past sessions list: about a year, compacted after the first week
 KEEP_BOOKS = 5      # volume books kept: "yesterday", the 4-day query, and 超跌反弹's 5-session return
+COMPACT_TOP = 15    # the "closest stocks" a session's page falls back to when nothing passed
 
 
-def prune_sessions(mkt: str, keep: int = KEEP_SESSIONS) -> list[Path]:
-    """Keep the newest `keep` archived sessions of a market (a rolling window: the data never piles up)."""
+def compact_session(mkt: str, day: date) -> bool:
+    """Shrink an older session to what its page shows: every stock that passed at any checkpoint, those one rule
+    short at the last one (the near misses in the ranked list, which stays the same) and the closest few. Returns
+    True if the session was rewritten."""
+    base = _base(mkt, day)
+    meta_f, rows_f = base.with_suffix(".json"), base.with_suffix(".parquet")
+    if not meta_f.exists() or not rows_f.exists():
+        return False
+    meta = json.loads(meta_f.read_text(encoding="utf-8"))
+    if meta.get("compact"):
+        return False
+    rows = pd.read_parquet(rows_f)
+    if not rows.empty:
+        latest = rows[rows["checkpoint"] == meta["checkpoints"][-1]]
+        n_rules = sum(c.startswith("rule_") for c in rows.columns)
+        closest = latest.sort_values(["rules_met", "score"], ascending=False).head(COMPACT_TOP)["code"]
+        keep = set(closest) | set(latest.loc[latest["rules_met"] >= n_rules - 1, "code"]) \
+            | set(rows.loc[rows["passes"].astype(bool), "code"])
+        rows = rows[rows["code"].isin(keep)]
+        rows.to_parquet(rows_f, index=False, compression="zstd")
+    meta["compact"] = True
+    meta_f.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+    return True
+
+
+def prune_sessions(mkt: str, keep: int = KEEP_SESSIONS, history: int = KEEP_HISTORY) -> list[Path]:
+    """The Past sessions list grows slowly: the newest `keep` sessions in full, older ones compacted, and only those
+    beyond `history` removed. Returns the files removed."""
     removed = []
-    for d in sessions(mkt)[keep:]:
+    days = sessions(mkt)
+    for d in days[history:]:
         for ext in (".parquet", ".json", ".md", ".csv"):
             path = _base(mkt, d).with_suffix(ext)
             if path.exists():
                 path.unlink()
                 removed.append(path)
-    if removed:
+    compacted = [d for d in days[keep:history] if compact_session(mkt, d)]
+    if removed or compacted:
         write_index()
     return removed
 

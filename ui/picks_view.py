@@ -11,7 +11,7 @@ Built for a free hosting plan, where every request to the mainland sources is sl
 """
 
 import dataclasses
-from datetime import date, time
+from datetime import date, time, timedelta
 
 import pandas as pd
 import streamlit as st
@@ -177,11 +177,8 @@ def render(mkt: str) -> None:
             job = job_runner().submit(frontpage_key(mkt, day, reached, P), "frontpage",
                                       {"mkt": mkt, "day": str(day), "params": P.to_dict(),
                                        "use_cache": not recompute}, force=recompute)
-        if job is not None and job.active:
+        if job is not None and (job.active or job.state == "failed"):
             _job_progress(job)
-        elif job is not None and job.state == "failed":
-            st.warning(f"The live update for {day} couldn't finish ({job.error}). Showing the last saved session; "
-                       "see **Data sources** for which feed is failing.", icon=":material/warning:")
     shown = res or checkpoint.latest_saved(spec, P, on_or_before=day)
     if shown is None:
         if reached:
@@ -261,10 +258,8 @@ def _close_screen() -> None:
         else:  # computed right away (the GitHub job starts hours late; its later copy is identical)
             job = job_runner().submit(("close_screen", str(session)), "close_screen",
                                       {"day": str(session), "workers": checkpoint.WORKERS})
-            if job.active:
+            if job.active or job.state == "failed":
                 _job_progress(job, "收盘选股 · 正在计算", "volume, resistance and moving averages", typical=40)
-            elif job.state == "failed":
-                st.caption(f"The list for {session} couldn't be computed ({job.error}).")
             days = archive.screen_days()
     if not days:
         st.info("No after-close list saved yet. The first one appears after 16:00 Beijing on a trading day.",
@@ -560,11 +555,32 @@ def _past_sessions(mkt: str, spec: checkpoint.MarketSpec, P, rules, cp_name, exc
     with exp:
         days = archive.sessions(mkt) if P == screener.ScreenParams() else []
         if not days:
-            st.caption("No earlier sessions saved yet. Each finished session is added to results/ automatically.")
+            st.caption("No earlier sessions saved yet. Each finished session is added automatically.")
             return
-        pick = st.selectbox("Session", days, format_func=lambda d: f"{d:%a %d %b %Y}", key=f"past_{mkt}")
+        weeks: dict[date, list[date]] = {}
+        for d in days:
+            weeks.setdefault(d - timedelta(days=d.weekday()), []).append(d)
+
+        def week_label(monday: date) -> str:
+            friday = monday + timedelta(days=4)
+            return f"{monday:%d %b} – {friday:%d %b %Y} · {len(weeks[monday])} 个交易日 sessions"
+
+        with st.container(horizontal=True, vertical_alignment="bottom"):
+            week = st.selectbox("周 · Week", list(weeks), format_func=week_label, key=f"past_week_{mkt}")
+            pick = st.segmented_control("日 · Day", sorted(weeks[week]), default=max(weeks[week]), required=True,
+                                        format_func=lambda d: f"{d:%a %d}", key=f"past_day_{mkt}_{week}")
+        missing = [week + timedelta(days=i) for i in range(5) if week + timedelta(days=i) not in weeks[week]
+                   and week + timedelta(days=i) < now_bj().date()]
+        if missing:
+            st.caption(f"{len(days)} sessions saved. Not in this week: "
+                       + ", ".join(f"{d:%a %d}" for d in missing) + " (market closed, or no result was saved).")
+        else:
+            st.caption(f"{len(days)} sessions saved. A new one is added after each close.")
         res = archive.load(mkt, pick)
         if res:
+            if res.get("compact"):
+                st.caption(":material/compress: Older session: the ranked list and the closest stocks are kept; the "
+                           f"full candidate list is kept for the newest {archive.KEEP_SESSIONS} sessions.")
             _result_block(res, spec, P, rules, cp_name, mkt, key=f"{mkt}_past")
 
 
@@ -588,6 +604,10 @@ def _result_block(res: dict, spec, P, rules, cp_name, mkt: str, key: str) -> Non
         st.caption(f":material/info: {n}")
 
     latest = cps[-1]
+    if frames[latest].empty:
+        st.info("当日没有股票通过第一轮筛选。 · No stock passed the first screen this session, so there is no list.",
+                icon=":material/search_off:")
+        return
     st.subheader(f"Ranked list · {pd.Timestamp(res['day']):%d %b}", anchor=False)
     if ranked.empty:
         st.warning(f"No stock met every rule - or came within one narrowly-missed rule - at {', '.join(cps)}. "

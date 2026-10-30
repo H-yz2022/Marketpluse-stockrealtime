@@ -96,6 +96,9 @@ def market_clock() -> None:
         if items:
             st.caption("今日自动更新 · Automatic updates: " + " · ".join(
                 f"{x['at']} {x['label']} {icons[x['state']]}" for x in items))
+            for x in items:
+                if x["state"] == "failed":
+                    st.caption(f":red[✗ {x['label']}: {x['error']}] (retries by itself; log on **Data sources**)")
 
 
 def switch_data_mode() -> None:
@@ -121,4 +124,15 @@ if sample.is_sample():
         st.badge("Sample data", icon=":material/inventory_2:", color="orange")
         st.caption(f"Saved session of {sample.meta().get('as_of', '')} - nothing is fetched. "
                    "Turn on **Live data** in the sidebar for real-time prices.")
+if clock is not None and clock.syncing:
+    # A restarted server's disk is empty: nothing is shown or computed until the published results are back.
+    @st.fragment(run_every="2s")
+    def _loading_results() -> None:
+        if not clock.syncing:
+            st.rerun()
+        st.info("正在载入最新结果，通常只需几秒。 · Loading the latest published results - usually a few seconds.",
+                icon=":material/cloud_download:")
+
+    _loading_results()
+    st.stop()
 page.run()

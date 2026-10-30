@@ -152,6 +152,16 @@ def needs_download() -> bool:
     return bool(stamp) and stamp != _state.get("stamp")
 
 
+def _merge_bundled(path: Path) -> None:
+    """Add the past sessions kept with the code that the publication doesn't hold (older ones it never had)."""
+    for mkt in ("cn", "hk"):
+        for f in (ROOT / "results" / mkt).glob("*.*"):
+            target = path / mkt / f.name
+            if not target.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(f, target)
+
+
 def download(force: bool = False) -> str | None:
     """Download and unpack the newest publication, keep anything this server computed that it doesn't have
     yet, and switch the pointer. (Runs in the worker process.)"""
@@ -170,6 +180,7 @@ def download(force: bool = False) -> str | None:
             if f.is_file() and not target.exists():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(f, target)
+    _merge_bundled(path)
     tmp = _pointer().with_suffix(".tmp")
     tmp.write_text(json.dumps({"dir": str(path), "stamp": stamp, "at": time.time()}), encoding="utf-8")
     import os

@@ -40,5 +40,6 @@
   "volume_price_up": true,
   "main_inflow": true,
   "max_history_candidates": 300
- }
+ },
+ "compact": true
 }

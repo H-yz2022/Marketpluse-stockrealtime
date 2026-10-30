@@ -295,12 +295,10 @@ def _today(stamp: str) -> None:
     res = lab.load_today(day)
     if res is None or tuple(res["times"]) != times:
         job = job_runner().submit(("lab_today", str(day), times), "lab_today", {"workers": checkpoint.WORKERS})
-        if job.active:
+        if job.active or job.state == "failed":
             from ui.progress import job_card
 
             job_card(job, "策略实验室 · 正在读取今日信号", "reading today's signals for every strategy", typical=90)
-        elif job.state == "failed":
-            st.warning(f"Today's signals couldn't be read ({job.error}).", icon=":material/warning:")
         res = lab.load_today(day) or res
     if res is None:
         return

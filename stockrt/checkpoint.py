@@ -32,6 +32,7 @@ import json
 import logging
 import math
 import os
+import time as _time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, time, timedelta
@@ -521,6 +522,8 @@ def evaluate(snap: pd.DataFrame, p: ScreenParams | None = None, cps: tuple[str, 
     if skipped:
         out["notes"].append(f"{skipped} stocks couldn't meet two or more of the history rules at any price they "
                             "traded at today, so they weren't rebuilt.")
+    if cands.empty and len(snap) >= MIN_HEALTHY_SNAPSHOT:
+        return _nothing_qualified(out, p, reached, spec)
     quotes = {r["code"]: r for r in cands.to_dict("records")}
     codes = list(quotes)
     # A checkpoint's picture is fixed once it has passed, so results are cached as soon as they exist.
@@ -537,23 +540,106 @@ def evaluate(snap: pd.DataFrame, p: ScreenParams | None = None, cps: tuple[str, 
             if captured[hh] is not None:
                 recs += _captured_rows(captured[hh], p, day, hh, codes)
         if minute_cps:
-            step = max(40, WORKERS * 3)
-            for i in range(0, len(codes), step):
-                chunk = codes[i:i + step]
-                for res in http.pmap(lambda c: _stock_rows(c, quotes[c], day, minute_cps, spec), chunk,
-                                     workers=WORKERS):
-                    if isinstance(res, list):
-                        recs += res
-                if progress:
-                    progress(min(i + step, len(codes)) / max(len(codes), 1),
-                             f"Rebuilding {min(i + step, len(codes))}/{len(codes)} stocks at {', '.join(minute_cps)}")
+            recs += _rebuild_stocks(codes, quotes, day, minute_cps, spec, f"{key}_parts", use_cache, progress, out)
         rows = pd.DataFrame(recs)
+        if rows.empty and codes and len(snap) >= MIN_HEALTHY_SNAPSHOT:
+            storage.delete("checkpoints", f"{key}_parts")
+            return _nothing_qualified(out, p, reached, spec)   # every stock answered; none has usable bars
         if not rows.empty:
+            if progress:
+                progress(FLOW_STAGE, "主力资金 · Main-fund flow")
             rows = _attach_flow(rows, day, spec)
         if not rows.empty:
             storage.save_frame("checkpoints", key, rows)
+        storage.delete("checkpoints", f"{key}_parts")
 
+    if progress:
+        progress(0.95, "排名 · Ranking")
     return _assemble(out, rows, quotes, p, idx, reached, spec)
+
+
+MIN_HEALTHY_SNAPSHOT = 200    # fewer quotes than this means the feed failed, not that nothing qualified
+FLOW_STAGE = 0.75             # progress when the per-stock downloads end and the money flow starts
+MAX_MISSING = 0.03            # more stocks than this unreadable: the run fails (and resumes) instead of ranking a part
+RETRY_PAUSE = 10.0
+
+
+class IncompleteRebuild(RuntimeError):
+    """Too many stocks could not be read. What was read is kept: the next attempt continues from there."""
+
+
+def _rebuild_stocks(codes: list[str], quotes: dict, day: date, cps: tuple[str, ...], spec: MarketSpec, parts_key: str,
+                    use_cache: bool, progress: Callable[[float, str], None] | None, out: dict) -> list[dict]:
+    """Every stock's rows at the checkpoints, saved after each batch so a failed run resumes where it stopped.
+
+    A stock that fails gets a second try at the end, more gently, after a pause. If too many still fail the run
+    raises rather than ranking part of the market as if it were all of it."""
+    recs: list[dict] = []
+    done: set[str] = set()
+    saved = storage.load_frame("checkpoints", parts_key) if use_cache else None
+    meta = storage.load_json("checkpoints", parts_key) if use_cache else None
+    if meta is not None:
+        done = set(meta["done"]) & set(codes)
+        recs = [] if saved is None else [r for r in saved.to_dict("records") if r["code"] in done]
+    errors: dict[str, str] = {}
+
+    def run(todo: list[str], workers: int) -> None:
+        step = max(40, workers * 3)
+        for i in range(0, len(todo), step):
+            chunk = todo[i:i + step]
+            for c, res in zip(chunk, http.pmap(lambda c: _stock_rows(c, quotes[c], day, cps, spec), chunk,
+                                               workers=workers)):
+                if isinstance(res, list):
+                    recs.extend(res)
+                    done.add(c)
+                    errors.pop(c, None)
+                elif isinstance(res, http.NotFound):
+                    done.add(c)                     # the stock has no data at this source: nothing to retry
+                    errors.pop(c, None)
+                else:
+                    errors[c] = f"{type(res).__name__}: {str(res)[:120]}"
+            if recs:
+                storage.save_frame("checkpoints", parts_key, pd.DataFrame(recs))
+            storage.save_json("checkpoints", parts_key, {"done": sorted(done)})
+            if progress:
+                progress(FLOW_STAGE * len(done) / max(len(codes), 1),
+                         f"Rebuilding {len(done)}/{len(codes)} stocks at {', '.join(cps)}")
+
+    run([c for c in codes if c not in done], WORKERS)
+    if errors:
+        if progress:
+            progress(FLOW_STAGE * len(done) / max(len(codes), 1),
+                     f"重试 {len(errors)} 只 · Retrying {len(errors)} stocks that didn't answer")
+        _time.sleep(RETRY_PAUSE)
+        http.reset_breakers()
+        run(list(errors), max(4, WORKERS // 4))
+    if len(errors) > max(2, MAX_MISSING * len(codes)):
+        raise IncompleteRebuild(f"{len(errors)} of {len(codes)} stocks didn't answer ({next(iter(errors.values()))}). "
+                                f"{len(done)} are saved and the next attempt continues from there.")
+    if errors:
+        out["notes"].append(f"{len(errors)} of {len(codes)} stocks couldn't be read and were left out.")
+    return recs
+
+
+def _nothing_qualified(out: dict, p: ScreenParams, reached: tuple[str, ...], spec: MarketSpec) -> dict:
+    """No stock got past the first screen: a valid result, saved like any other, not a failure to retry."""
+    empty = pd.DataFrame({"code": pd.Series(dtype=str), "name": pd.Series(dtype=str),
+                          "passes": pd.Series(dtype=bool), "rules_met": pd.Series(dtype=int),
+                          "score": pd.Series(dtype=float), "flow_at": pd.Series(dtype=str)})
+    out["frames"] = {hh: empty.copy() for hh in reached}
+    out["flow_checked"] = False
+    out["notes"].append(f"No stock passed the first screen on {out['day']} (price change, turnover and market value "
+                        "together), so nothing qualified. 当日没有股票通过第一轮筛选。")
+    _save_finished(out, p, reached, spec)
+    return out
+
+
+def _save_finished(out: dict, p: ScreenParams, reached: tuple[str, ...], spec: MarketSpec) -> None:
+    save_result(out, p, spec)
+    if set(reached) == set(spec.checkpoints) and p == ScreenParams():
+        archive.save(out, spec.mkt, p.to_dict())  # a finished session for the "Past sessions" list
+        archive.write_report(out, spec.mkt, ranked(out, p, spec=spec), [lbl for _, lbl in rule_labels(p, spec)],
+                             spec.index_name)
 
 
 def _assemble(out: dict, rows: pd.DataFrame, quotes: dict, p: ScreenParams, idx: dict, reached: tuple[str, ...],
@@ -580,11 +666,7 @@ def _assemble(out: dict, rows: pd.DataFrame, quotes: dict, p: ScreenParams, idx:
                             "the session's end-of-day net inflow is used instead (confidence: medium).")
     if idx == {}:
         out["notes"].append(f"{spec.index_name} minute data unavailable - 'beats the market' could not be checked.")
-    save_result(out, p, spec)
-    if set(reached) == set(spec.checkpoints) and p == ScreenParams():
-        archive.save(out, spec.mkt, p.to_dict())  # a finished session for the "Past sessions" list
-        archive.write_report(out, spec.mkt, ranked(out, p, spec=spec), [lbl for _, lbl in rule_labels(p, spec)],
-                             spec.index_name)
+    _save_finished(out, p, reached, spec)
     return out
 
 

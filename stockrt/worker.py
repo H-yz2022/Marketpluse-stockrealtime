@@ -32,9 +32,9 @@ class Progress:
         self.path, self.last = path, 0.0
         self.write(0.0, "Starting")
 
-    def write(self, f: float, msg: str, error: str | None = None) -> None:
+    def write(self, f: float, msg: str, error: str | None = None, where: str | None = None) -> None:
         tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"progress": f, "message": msg, "error": error, "at": time.time()},
+        tmp.write_text(json.dumps({"progress": f, "message": msg, "error": error, "where": where, "at": time.time()},
                                   ensure_ascii=False), encoding="utf-8")
         os.replace(tmp, self.path)
 
@@ -157,7 +157,8 @@ def main(argv: list[str]) -> int:
         return 0
     except Exception as e:  # noqa: BLE001 - reported to the page through the progress file
         traceback.print_exc()
-        progress.write(0.0, "Failed", error=f"{type(e).__name__}: {str(e)[:300]}")
+        tb = traceback.format_exc().strip().splitlines()
+        progress.write(0.0, "Failed", error=f"{type(e).__name__}: {str(e)[:300]}", where=" | ".join(tb[-4:])[:500])
         return 1
 
 

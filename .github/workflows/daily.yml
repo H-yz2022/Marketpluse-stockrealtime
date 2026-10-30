@@ -39,8 +39,10 @@ jobs:
       - name: Start from the published results
         run: |
           if git fetch --depth=1 -q origin results 2>/dev/null; then
-            rm -rf results && mkdir results
+            mv results results_main && mkdir results
             git archive FETCH_HEAD | tar -x -C results
+            # Past sessions kept in main; published ones win (newer cp returns an error when it skips a file).
+            cp -rn results_main/cn results_main/hk results/ || true
             echo "Starting from the published results branch."
           else
             echo "No results branch yet: starting from the copy in main."

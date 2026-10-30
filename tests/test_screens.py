@@ -73,7 +73,35 @@ def test_progress_estimate():
     from stockrt import jobs
     from ui import progress
 
-    job = jobs.Job(("k",), state="running", progress=0.5, started=time.time() - 30)
-    assert 25 <= progress.eta(job) <= 35
+    job = jobs.Job(("k",), state="running", progress=0.5, started=time.time() - 30, mark=(time.time() - 30, 0.1))
+    assert 30 <= progress.eta(job) <= 45
     early = jobs.Job(("k",), state="running", progress=0.01, started=time.time() - 5)
     assert 50 <= progress.eta(early, typical=60) <= 60
+
+
+def test_job_card_shows_a_failure_and_a_queue_instead_of_a_countdown(monkeypatch):
+    from types import SimpleNamespace
+
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setattr("ui.picks_view.job_runner", lambda: SimpleNamespace(ahead=lambda key: 1))
+
+    def page():
+        import time
+
+        from stockrt import jobs
+        from ui import progress
+
+        failed = jobs.Job(("a",), state="failed", error="SourceUnavailable: paused", task="selftest",
+                          retry_at=time.time() + 60)
+        queued = jobs.Job(("b",), state="queued", task="selftest", attempt=2, last_error="timed out")
+        progress.job_card(failed, "甲", "first")
+        progress.job_card(queued, "乙", "second")
+
+    at = AppTest.from_function(page, default_timeout=30).run()
+    assert not at.exception
+    text = " ".join(m.value for m in at.markdown) + " ".join(c.value for c in at.caption)
+    assert "这次更新没有完成" in text and "SourceUnavailable: paused" in text and "排队中" not in text.split("乙")[0]
+    assert "第 2 次尝试" in text and "timed out" in text
+    assert [m.label for m in at.metric][0].startswith("前面还有")
+

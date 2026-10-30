@@ -78,7 +78,7 @@ def test_nothing_published_keeps_local(tmp_path, monkeypatch):
     assert published.sync()["source"] == "local" and archive.RESULTS_DIR == local
 
 
-def test_rolling_window_keeps_four_sessions(tmp_path, monkeypatch):
+def test_past_sessions_grow_and_only_the_oldest_are_removed(tmp_path, monkeypatch):
     monkeypatch.setattr(archive, "RESULTS_DIR", tmp_path)
     days = [date(2026, 9, 28), date(2026, 9, 29), date(2026, 9, 30), date(2026, 10, 8), date(2026, 10, 9),
             date(2026, 10, 12)]
@@ -87,7 +87,9 @@ def test_rolling_window_keeps_four_sessions(tmp_path, monkeypatch):
         base.parent.mkdir(parents=True, exist_ok=True)
         base.with_suffix(".json").write_text(json.dumps({"checkpoints": ["14:00"]}), encoding="utf-8")
         base.with_suffix(".md").write_text("x", encoding="utf-8")
-    removed = archive.prune_sessions("CN")
+    assert archive.prune_sessions("CN") == []                    # nothing removed below a year's worth
+    assert archive.sessions("CN") == sorted(days, reverse=True)
+    removed = archive.prune_sessions("CN", history=4)
     assert archive.sessions("CN") == sorted(days, reverse=True)[:4]
     assert len(removed) == 4                                     # .json + .md of the two oldest
     man = json.loads(archive.write_manifest(datetime(2026, 10, 12, 15, 10, tzinfo=BJ)).read_text(encoding="utf-8"))

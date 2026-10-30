@@ -70,6 +70,12 @@ def save_frame(kind: str, key: str, df: pd.DataFrame) -> None:
     _atomic_write(_path(kind, key, "parquet"), lambda tmp: df.to_parquet(tmp, index=False))
 
 
+def delete(kind: str, key: str) -> None:
+    """Remove a key's frame and JSON, if any."""
+    for ext in ("parquet", "json"):
+        _path(kind, key, ext).unlink(missing_ok=True)
+
+
 def load_json(kind: str, key: str, max_age: float | None = None) -> Any | None:
     if sample.is_sample():
         return None

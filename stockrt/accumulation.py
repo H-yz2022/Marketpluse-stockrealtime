@@ -23,6 +23,7 @@ every candidate's measures, so the thresholds can be changed on the page without
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -111,14 +112,30 @@ def compute(day: date, snap: pd.DataFrame | None, cps: tuple[str, ...],
             cands = cands[cands["code"].isin(ok)]
     rows: list[dict] = []
     codes = cands["code"].tolist()
-    for i in range(0, len(codes), 40):
-        chunk = codes[i:i + 40]
-        for r in http.pmap(lambda c: measures(c, day, cps), chunk, workers=workers):
-            if isinstance(r, dict):
-                rows.append(r)
+
+    def run(todo: list[str], n: int) -> list[str]:
+        missed = []
+        for i in range(0, len(todo), 40):
+            chunk = todo[i:i + 40]
+            for c, r in zip(chunk, http.pmap(lambda c: measures(c, day, cps), chunk, workers=n)):
+                if isinstance(r, dict):
+                    rows.append(r)
+                elif isinstance(r, Exception) and not isinstance(r, http.NotFound):
+                    missed.append(c)
+            if progress:
+                progress(len(rows) / max(len(codes), 1),
+                         f"主力资金分时 · Main-fund minute flow {len(rows)}/{len(codes)}")
+        return missed
+
+    failed = run(codes, workers)
+    if failed:                                  # a second try, more gently, once the source has had a pause
         if progress:
-            progress(min(i + 40, len(codes)) / max(len(codes), 1),
-                     f"主力资金分时 · Main-fund minute flow {min(i + 40, len(codes))}/{len(codes)}")
+            progress(len(rows) / max(len(codes), 1), f"重试 {len(failed)} 只 · Retrying {len(failed)} stocks")
+        time.sleep(10)
+        http.reset_breakers()
+        failed = run(failed, 4)
+    if len(failed) > max(3, 0.05 * len(codes)):
+        raise RuntimeError(f"{len(failed)} of {len(codes)} stocks' minute flow didn't answer")
     m = pd.DataFrame(rows)
     frame = cands.merge(m, on="code", how="inner") if not m.empty else cands.iloc[0:0]
     if len(m) < len(codes):
