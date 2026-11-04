@@ -34,6 +34,24 @@ def test_process_runner_runs_dedupes_and_reports_failure(tmp_path, monkeypatch):
     assert r.submit(("t", 1), "selftest", {}, force=True) is not a
 
 
+def test_a_visitor_goes_ahead_of_the_clocks_catch_up(tmp_path, monkeypatch):
+    # Render logs, 2 Nov: after each wake-up the clock queued the whole day (~11 min) and visitors waited behind it.
+    monkeypatch.setattr("stockrt.config.DATA_DIR", tmp_path)
+    r = jobs.ProcessRunner()
+    running = r.submit(("clock", 1), "selftest", {"pause": 0.5})
+    t0 = time.time()
+    while running.state != "running" and time.time() - t0 < 10:
+        time.sleep(0.05)
+    clock = [r.submit(("clock", i), "selftest", {"pause": 0.01}) for i in (2, 3, 4)]
+    visitor = r.submit(("page", 1), "selftest", {"pause": 0.01}, front=True)
+    assert r.ahead(visitor.key) == 1                              # only the job already running
+    again = r.submit(("clock", 4), "selftest", {}, front=True)    # a visitor wants what the clock queued last
+    assert again is clock[2] and r.ahead(again.key) == 1 and r.ahead(visitor.key) == 2
+    for j in (running, *clock, visitor):
+        _wait(j)
+    assert all(j.state == "done" for j in (running, *clock, visitor))
+
+
 def test_a_failed_job_keeps_its_reason_and_waits_for_its_retry(tmp_path, monkeypatch):
     # Resubmitting at once made an open page restart the job from zero every few seconds, hiding the error.
     monkeypatch.setattr("stockrt.config.DATA_DIR", tmp_path)

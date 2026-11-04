@@ -96,7 +96,9 @@ class ProcessRunner:
     only starts it and reads its progress file, and the worker exits when done (its memory is returned).
 
     Jobs are de-duplicated by key, so the site's clock and a visitor asking for the same result share one
-    run. Results are written to disk by the worker; pages read them from there.
+    run. Results are written to disk by the worker; pages read them from there. A visitor's request goes ahead
+    of the clock's queued work (`front`): after a restart the clock catches up on the whole day, about 11 minutes
+    on Render, and a visitor used to wait behind all of it.
 
     A failed job stays failed, with its reason, until its retry time: resubmitting at once made a page restart
     the job from zero every few seconds for as long as it was open, and hid the error. Every finished
@@ -143,6 +145,9 @@ class ProcessRunner:
         with self._lock:
             old = self._jobs.get(key)
             if old and old.active:
+                if front and old.state == "queued" and key in self._queue:   # someone is waiting for it now
+                    self._queue.remove(key)
+                    self._queue.appendleft(key)
                 return old
             if old and not force:
                 if old.state == "done" or (old.state == "failed" and
@@ -256,16 +261,22 @@ class ProcessRunner:
         job = self._jobs.get(key)
         pf = self._progress_file(key)
         rc = self._proc.poll()              # before reading the file: a worker that just exited has written its reason
-        if job is not None and pf.exists():
+        # A read can land while the worker swaps the file in (Windows refuses it then): once the worker has exited,
+        # try again briefly rather than lose its error.
+        for _ in range(1 if rc is None else 5):
+            if job is None or not pf.exists():
+                break
             try:
                 st = json.loads(pf.read_text(encoding="utf-8"))
-                job.progress, job.message = float(st.get("progress", job.progress)), st.get("message", job.message)
-                if job.mark is None and job.progress >= 0.10:
-                    job.mark = (time.time(), job.progress)
-                if st.get("error"):
-                    job.error, job.where = st["error"], st.get("where")
             except (OSError, ValueError):
-                pass
+                time.sleep(0.05)
+                continue
+            job.progress, job.message = float(st.get("progress", job.progress)), st.get("message", job.message)
+            if job.mark is None and job.progress >= 0.10:
+                job.mark = (time.time(), job.progress)
+            if st.get("error"):
+                job.error, job.where = st["error"], st.get("where")
+            break
         if rc is None and job is not None and time.time() - job.started > self.TIMEOUT:
             self._proc.kill()
             job.error = f"timed out after {self.TIMEOUT // 60} min"

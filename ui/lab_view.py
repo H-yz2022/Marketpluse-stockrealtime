@@ -294,7 +294,8 @@ def _today(stamp: str) -> None:
         return
     res = lab.load_today(day)
     if res is None or tuple(res["times"]) != times:
-        job = job_runner().submit(("lab_today", str(day), times), "lab_today", {"workers": checkpoint.WORKERS})
+        job = job_runner().submit(("lab_today", str(day), times), "lab_today", {"workers": checkpoint.WORKERS},
+                                  front=True)
         if job.active or job.state == "failed":
             from ui.progress import job_card
 

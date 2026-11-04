@@ -92,6 +92,11 @@ one job at a time, and duplicates (a visitor and the clock asking for the same t
 writes its progress and its results to disk and exits, returning its memory; the web server only reads files. Measured
 locally while the worker processed the 535-stock morning screen: the health check answered in 2–4 ms throughout.
 
+**Visitors go first.** A free Render server sleeps after 15 minutes without visitors, and its disk is wiped. On the
+next visit the clock catches up on everything due that day that isn't published yet (measured on 2 Nov: about 11
+minutes, 7 of them for 主力暗中吸筹's 1,804 stocks). Whatever a visitor opens runs before that catch-up work, so they
+wait at most for the one job already running. An uptime monitor (above) avoids the catch-up altogether.
+
 **When a job fails.** A failed job keeps its reason on the page and retries after 1, 3 and then 10 minutes (the clock
 keeps retrying every 10); it no longer restarts from zero. 尾盘选股 saves each batch of stocks as it goes, so a retry
 continues where the last attempt stopped. A stock that doesn't answer gets a second try after a pause, and if more than 3%

@@ -76,7 +76,8 @@ def accumulation_section() -> None:
         res = accumulation.load_partial(day, reached)
     if res is None and reached:
         job = _runner().submit(acc_key(day, reached), "accumulation",
-                               {"day": str(day), "reached": list(reached), "workers": checkpoint.WORKERS})
+                               {"day": str(day), "reached": list(reached), "workers": checkpoint.WORKERS},
+                               front=True)
         if job.active or job.state == "failed":
             job_card(job, "主力暗中吸筹 · 正在读取分时资金流", f"reading each candidate's minute money flow for "
                      f"{', '.join(reached)}", typical=90)
@@ -151,7 +152,8 @@ def longterm_section() -> None:
     closed = day < now.date() or now.time() >= LT_AT
     res = longterm.load(day) if closed else None
     if res is None and closed:
-        job = _runner().submit(longterm_key(day), "longterm", {"day": str(day), "workers": checkpoint.WORKERS})
+        job = _runner().submit(longterm_key(day), "longterm", {"day": str(day), "workers": checkpoint.WORKERS},
+                               front=True)
         if job.active or job.state == "failed":
             job_card(job, "长线 · 正在计算收盘数据", "institutions, 10-day flow and moving averages", typical=60)
         res = longterm.load(day)

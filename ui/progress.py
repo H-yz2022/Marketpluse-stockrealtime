@@ -58,7 +58,7 @@ def _failed(job: jobs.Job, what_zh: str, what_en: str) -> None:
                        f"Attempt {job.attempt} failed; it retries by itself and keeps what was finished. "
                        "The last saved result stays below.")
         if st.button("立即重试 · Retry now", icon=":material/refresh:", key=f"retry_{abs(hash(job.key))}"):
-            job_runner().submit(job.key, job.task, job.args, force=True)
+            job_runner().submit(job.key, job.task, job.args, force=True, front=True)
             st.rerun()
 
 

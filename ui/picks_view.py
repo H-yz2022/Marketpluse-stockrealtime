@@ -176,7 +176,7 @@ def render(mkt: str) -> None:
         elif reached and (res is None or recompute):
             job = job_runner().submit(frontpage_key(mkt, day, reached, P), "frontpage",
                                       {"mkt": mkt, "day": str(day), "params": P.to_dict(),
-                                       "use_cache": not recompute}, force=recompute)
+                                       "use_cache": not recompute}, force=recompute, front=True)
         if job is not None and (job.active or job.state == "failed"):
             _job_progress(job)
     shown = res or checkpoint.latest_saved(spec, P, on_or_before=day)
@@ -257,7 +257,7 @@ def _close_screen() -> None:
                        + (" Showing the latest saved session." if days else ""))
         else:  # computed right away (the GitHub job starts hours late; its later copy is identical)
             job = job_runner().submit(("close_screen", str(session)), "close_screen",
-                                      {"day": str(session), "workers": checkpoint.WORKERS})
+                                      {"day": str(session), "workers": checkpoint.WORKERS}, front=True)
             if job.active or job.state == "failed":
                 _job_progress(job, "收盘选股 · 正在计算", "volume, resistance and moving averages", typical=40)
             days = archive.screen_days()
