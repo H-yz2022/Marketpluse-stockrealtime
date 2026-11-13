@@ -34,10 +34,12 @@ SYNC_DIR = DATA_DIR / "published"
 MIN_INTERVAL = 60.0          # seconds between manifest checks (per server)
 _lock = threading.Lock()
 _state = {"checked": 0.0, "stamp": None, "dir": None, "error": None}
+DEFAULT_REPO = "H-yz2022/Marketpluse-stockrealtime"   # used when the host gives neither a variable nor a .git folder
 
 
 def repo() -> str | None:
-    """owner/name of the GitHub repository: STOCKRT_RESULTS_REPO, Render's own variable, or the git remote."""
+    """owner/name of the GitHub repository: STOCKRT_RESULTS_REPO, Render's own variable, the git remote, or this
+    project's own repository."""
     for var in ("STOCKRT_RESULTS_REPO", "RENDER_GIT_REPO_SLUG"):
         if os.environ.get(var):
             return os.environ[var]
@@ -46,7 +48,7 @@ def repo() -> str | None:
         m = re.search(r"github\.com[:/]([\w.-]+/[\w.-]+?)(?:\.git)?\s", cfg.read_text(encoding="utf-8") + "\n")
         if m:
             return m.group(1)
-    return None
+    return DEFAULT_REPO
 
 
 def enabled() -> bool:

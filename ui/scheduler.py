@@ -2,10 +2,9 @@
 
 Every 30 seconds it looks at what is already saved on disk (so a restart loses nothing) and queues whatever
 is due and missing into the worker process - never running anything heavy itself, so the web server keeps
-answering Render's health check. A task still missing 10 minutes after an attempt is retried; one missing
-past its deadline is shown as late. The GitHub job publishes durable copies later (it starts hours late).
-A free Render server sleeps after 15 idle minutes, and while asleep nothing runs: an uptime monitor pinging
-the site keeps it awake (see README).
+answering. A task still missing 10 minutes after an attempt is retried; one missing past its deadline is shown
+as late. The GitHub job publishes durable copies later (it starts hours late). A free host sleeps when nobody
+visits (Streamlit Community Cloud after 12 hours, Render after 15 minutes), and while asleep nothing runs.
 """
 
 from __future__ import annotations

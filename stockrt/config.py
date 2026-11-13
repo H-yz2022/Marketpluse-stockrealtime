@@ -3,10 +3,26 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = Path(os.environ.get("STOCKRT_DATA_DIR", ROOT / "data"))
+
+
+def _writable_data_dir() -> Path:
+    """data/ next to the code, unless the host doesn't allow writing there: then the system's temp folder."""
+    wanted = Path(os.environ.get("STOCKRT_DATA_DIR", ROOT / "data"))
+    try:
+        wanted.mkdir(parents=True, exist_ok=True)
+        probe = wanted / ".write_test"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        return wanted
+    except OSError:
+        return Path(tempfile.gettempdir()) / "stockrt-data"
+
+
+DATA_DIR = _writable_data_dir()
 CACHE_DIR = DATA_DIR / "cache"
 SNAPSHOT_DIR = DATA_DIR / "snapshots"
 WATCHLIST_FILE = DATA_DIR / "watchlist.json"

@@ -60,9 +60,18 @@ the sample with a newer session, run `python scripts/build_sample.py` (~6 minute
 
 ## Deploy (free)
 
-Push to GitHub, then on [Render](https://render.com) choose **New → Blueprint** and pick the repo.
-`render.yaml` starts the app on the free plan with **live data**, so the front page is real time while
-the market trades.
+The site runs on **[Streamlit Community Cloud](https://share.streamlit.io)**: free, up to 2 CPU cores and 2.7 GB of
+memory, and it sleeps only after **12 hours** without visitors (a visitor wakes it with one click). To set it up:
+
+1. Sign in at share.streamlit.io with the GitHub account that owns the repository.
+2. **Create app** → *Yup, I have an app*: repository `H-yz2022/Marketpluse-stockrealtime`, branch `main`, main file
+   `streamlit_app.py`, and an App URL such as `china-hk-markets` (→ `china-hk-markets.streamlit.app`).
+3. Deploy. No secrets are needed: live data, the results branch and 24 parallel requests are the defaults. The
+   site updates by itself after every push. Its log is under **Manage app** (lines starting `[job]`).
+
+Render works too (`render.yaml`, New → Blueprint), but its free plan sleeps after 15 idle minutes and shares **750
+hours a month across every free service in the account**: running out suspends the site until the 1st, as happened
+in November 2026. Its $7-a-month Starter instance never sleeps.
 
 **A trading day runs by itself** (Beijing time):
 
@@ -92,17 +101,17 @@ one job at a time, and duplicates (a visitor and the clock asking for the same t
 writes its progress and its results to disk and exits, returning its memory; the web server only reads files. Measured
 locally while the worker processed the 535-stock morning screen: the health check answered in 2–4 ms throughout.
 
-**Visitors go first.** A free Render server sleeps after 15 minutes without visitors, and its disk is wiped. On the
-next visit the clock catches up on everything due that day that isn't published yet (measured on 2 Nov: about 11
+**Visitors go first.** A free server that sleeps loses its disk (Render after 15 idle minutes; Streamlit Community
+Cloud after 12 hours). On the next visit the clock catches up on everything due that day that isn't published yet (measured on 2 Nov: about 11
 minutes, 7 of them for 主力暗中吸筹's 1,804 stocks). Whatever a visitor opens runs before that catch-up work, so they
-wait at most for the one job already running. An uptime monitor (above) avoids the catch-up altogether.
+wait at most for the one job already running.
 
 **When a job fails.** A failed job keeps its reason on the page and retries after 1, 3 and then 10 minutes (the clock
 keeps retrying every 10); it no longer restarts from zero. 尾盘选股 saves each batch of stocks as it goes, so a retry
 continues where the last attempt stopped. A stock that doesn't answer gets a second try after a pause, and if more than 3%
 of them are still missing the run fails rather than ranking part of the market. **No stock qualifying is a result, not
 a failure**: it is saved and shown as such. Every run is logged under **Data sources → Site job log** (job, result, seconds,
-attempt, error) and in Render's **Logs** tab, on lines starting `[job]`. The time left comes from the job's measured speed,
+attempt, error) and in the host's log (**Manage app** on Streamlit Community Cloud), on lines starting `[job]`. The time left comes from the job's measured speed,
 else from how long the same task really took on this server; past that, the page says it is slower than usual rather
 than showing a countdown it can't back up.
 
@@ -132,9 +141,8 @@ scheduled run. Whichever run comes first does the work; the others find it done 
 5–8 hours late, so the website doesn't wait for it: its own clock (`ui/scheduler.py`, the table above) computes
 each result whenever the server is awake, and a visitor who arrives first triggers the same job (with a progress
 card and a countdown). The job's late run then publishes the same figures durably, and the site downloads them
-in its worker. **A free Render server sleeps after 15 idle minutes, and while it sleeps the clock can't run.** To
-keep it awake on trading days, point a free uptime monitor (for example UptimeRobot, every 10 minutes) at
-`https://china-hk-markets.onrender.com/_stcore/health` - optional, and the site needs no account details. Each run writes
+in its worker. **While the site sleeps the clock can't run**: on Streamlit Community Cloud that means 12 hours with
+no visitor, so one visit a day keeps it running. Each run writes
 `job_log.json` (what every step did, including errors) next to the results; the **Data sources** page shows it. Missed sessions
 are caught up: any of the last few sessions missing from the front page is rebuilt from the 5-session minute
 series. A session rebuilt with Sina's money flow (East Money refused) is redone automatically once East Money
@@ -154,10 +162,10 @@ The site is built to stay small on a free 512 MB instance:
 The daily job needs permission to push its branch: Settings → Actions → General → Workflow permissions →
 *Read and write* (if your account defaults to read-only).
 
-`STOCKRT_WORKERS` sets how many requests run in parallel (24 on Render, where each request to the mainland
-sources is slow). Set `STOCKRT_DATA_MODE=sample` for a fully offline demo, and `STOCKRT_LOCK_MODE=1` to hide the
-live/sample switch from visitors. Streamlit Community Cloud also works: point it at
-`streamlit_app.py` and add `STOCKRT_DATA_MODE = "sample"` under its secrets / environment settings.
+Optional settings (environment variables; on Streamlit Community Cloud, under the app's **Secrets**, e.g.
+`STOCKRT_WORKERS = "16"`): `STOCKRT_WORKERS` sets how many requests run in parallel (default 24, as each request to
+the mainland sources is slow from abroad), `STOCKRT_DATA_MODE=sample` gives a fully offline demo, and
+`STOCKRT_LOCK_MODE=1` hides the live/sample switch from visitors.
 
 ## Data, in one paragraph
 

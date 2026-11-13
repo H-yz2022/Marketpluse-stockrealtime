@@ -49,7 +49,7 @@ from .sources import eastmoney, tencent
 log = logging.getLogger(__name__)
 
 GRACE = timedelta(minutes=1)  # let the minute's bar (and the closing auction) print
-WORKERS = int(os.environ.get("STOCKRT_WORKERS", "10"))  # more on slow (overseas) servers
+WORKERS = int(os.environ.get("STOCKRT_WORKERS", "24"))  # parallel requests: each is slow from an overseas server
 
 
 @dataclass(frozen=True)

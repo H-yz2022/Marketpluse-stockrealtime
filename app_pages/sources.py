@@ -136,7 +136,8 @@ if not sample.is_sample():
     entries = job_runner().history(60)
     starts = [e["at"] for e in entries if e.get("event") == "server_start"]
     st.caption((f"This server last started at {starts[0]} Beijing; the log begins there (a free server's disk is "
-                "wiped when it restarts - Render's **Logs** tab keeps the same lines, each starting `[job]`). "
+                "wiped when it restarts - the host's log keeps the same lines, each starting `[job]`: on Streamlit "
+                "Community Cloud under **Manage app**). "
                 if starts else "") + "The GitHub job's own log is under *Daily update runs* above.")
     runs = [e for e in entries if e.get("task")]
     if runs:
