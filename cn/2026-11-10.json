@@ -1,0 +1,44 @@
+{
+ "day": "2026-11-10",
+ "market": "CN",
+ "checkpoints": [
+  "14:00",
+  "14:30",
+  "15:00"
+ ],
+ "index_pct": {
+  "14:00": 0.19747985138469648,
+  "14:30": 0.25862217740642013,
+  "15:00": 0.07396249115532161
+ },
+ "notes": [
+  "113 stocks couldn't meet two or more of the history rules at any price they traded at today, so they weren't rebuilt."
+ ],
+ "candidates": 328,
+ "flow_checked": true,
+ "params": {
+  "exclude_st": true,
+  "boards": [
+   "Main",
+   "ChiNext",
+   "STAR",
+   "BSE"
+  ],
+  "pct_min": 3.0,
+  "pct_max": 5.0,
+  "volume_ratio_min": 1.0,
+  "turnover_min": 3.0,
+  "turnover_max": 8.0,
+  "float_mcap_min_bn": 5.0,
+  "float_mcap_max_bn": 20.0,
+  "price_min": null,
+  "price_max": null,
+  "outperform_market": true,
+  "golden_cross": true,
+  "cross_within": 3,
+  "ma_rising": true,
+  "volume_price_up": true,
+  "main_inflow": true,
+  "max_history_candidates": 300
+ }
+}
