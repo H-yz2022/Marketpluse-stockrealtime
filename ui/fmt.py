@@ -97,3 +97,32 @@ QUOTE_COLUMNS = {
     "main_net_ratio": P.NumberColumn("Main net / value", format="%.1f%%"),
     "board": P.TextColumn("Board"),
 }
+
+
+def quote_columns() -> dict:
+    """QUOTE_COLUMNS in the visitor's language."""
+    from ui.i18n import t
+
+    return {
+        "code": P.TextColumn(t("代码", "Code"), pinned=True),
+        "name": P.TextColumn(t("名称", "Name"), pinned=True),
+        "price": P.NumberColumn(t("现价", "Price"), format="%.2f"),
+        "pct_change": pct_col(t("涨幅", "Change"), frac=False),
+        "volume_ratio": P.NumberColumn(t("量比", "Vol ratio"), format="%.2f",
+                                       help=t("今日每分钟成交量 ÷ 前5日平均", "量比: per-minute volume today vs 5-day average")),
+        "turnover_rate": P.NumberColumn(t("换手率", "Turnover"), format="%.2f%%",
+                                        help=t("成交量 ÷ 流通股本", "换手率: volume / float shares")),
+        "float_mcap": compact_col(t("流通市值", "Float cap")),
+        "total_mcap": compact_col(t("总市值", "Market cap")),
+        "amount": compact_col(t("成交额", "Value traded")),
+        "volume": compact_col(t("成交量（股）", "Volume (shares)")),
+        "pe_ttm": P.NumberColumn(t("市盈率（TTM）", "P/E (TTM)"), format="%.1f"),
+        "pb": P.NumberColumn(t("市净率", "P/B"), format="%.2f"),
+        "div_yield": P.NumberColumn(t("股息率", "Div. yield"), format="%.2f%%"),
+        "amplitude": P.NumberColumn(t("振幅", "Range"), format="%.2f%%",
+                                    help=t("（最高 − 最低）÷ 昨收", "振幅: (high - low) / previous close")),
+        "main_net": compact_col(t("主力净流入", "Main net inflow"),
+                                t("大单 + 特大单买入减卖出", "主力净流入: large + extra-large orders, bought minus sold")),
+        "main_net_ratio": P.NumberColumn(t("主力净流入占成交额", "Main net / value"), format="%.1f%%"),
+        "board": P.TextColumn(t("板块", "Board")),
+    }

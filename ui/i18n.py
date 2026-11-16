@@ -270,3 +270,55 @@ def close_rules(resistance: int, ma: int) -> list[tuple[str, str]]:
             ("突破压力位", f"收盘价高于前 {resistance} 个交易日的最高价。"),
             ("换手率＞3%", f"换手率高于流通股本的 {closescreen.TURNOVER_MIN:g}%。"),
             ("站上牛熊线", f"收盘价高于 {ma} 日均线{'（' + line + '）' if line else ''}。")]
+
+
+MOODS = {"Strongly bullish": "强烈看多", "Bullish": "偏多", "Neutral": "中性", "Bearish": "偏空",
+         "Strongly bearish": "强烈看空"}
+BOARDS_ZH = {"Main": "主板", "ChiNext": "创业板", "STAR": "科创板", "BSE": "北交所"}
+FUNNEL = [
+    (r"All stocks", "全部股票"), (r"Traded today \(not suspended\)", "今日有交易（未停牌）"),
+    (r"Not ST / \*ST", "非ST / *ST"), (r"Board in (.+)", "板块：{0}"), (r"Change (.+)", "涨幅 {0}"),
+    (r"Volume ratio > (.+)", "量比 > {0}"), (r"Turnover (.+)", "换手率 {0}"), (r"Float cap (.+) bn", "流通市值 {0} 十亿"),
+    (r"Price (.+)", "价格 {0}"), (r"Beats market \((.+)\)", "强于大盘（{0}）"),
+    (r"MA5 crossed above MA10", "5日线上穿10日线"), (r"MA5 & MA10 rising", "5日线与10日线向上"),
+    (r"Volume & price up", "量价齐升"), (r"Main funds net inflow", "主力资金净流入"),
+]
+NOTES += [
+    (r"Benchmark quote unavailable - 'beats market' rule skipped\.", "基准行情不可用——跳过“强于大盘”条件。"),
+    (r"(\d+) stocks passed the snapshot rules; history checked for the (\d+) with the highest turnover value\.",
+     "{0} 只股票通过快照条件；只检查成交额最大的 {1} 只的历史数据。"),
+    (r"Money-flow sources unavailable - 'main funds inflow' could not be checked\.",
+     "资金流向数据不可用——无法检查“主力资金流入”。"),
+]
+
+
+def mood(label: str) -> str:
+    return MOODS.get(label, label) if zh() else label
+
+
+def funnel_step(name: str) -> str:
+    if not zh():
+        return name
+    for pat, zh_text in FUNNEL:
+        m = re.fullmatch(pat, name)
+        if m:
+            out = zh_text.format(*m.groups())
+            for en, zh_board in BOARDS_ZH.items():
+                out = out.replace(en, zh_board) if pat.startswith("Board") else out
+            return out
+    return name
+
+
+INDEX_NAMES_ZH = {"SSE Composite": "上证指数", "SZSE Component": "深证成指", "CSI 300": "沪深300", "SSE 50": "上证50",
+                  "CSI 500": "中证500", "CSI 1000": "中证1000", "ChiNext": "创业板指", "STAR 50": "科创50",
+                  "Hang Seng Index": "恒生指数", "HS China Enterprises": "恒生国企指数", "Hang Seng TECH": "恒生科技指数"}
+GROUPS_ZH = {"Baijiu (white liquor)": "白酒", "Telecom": "通信", "Banks": "银行", "HK tech & platforms": "港股科技与平台",
+             "HK financials": "港股金融", "New energy": "新能源"}
+
+
+def index_name(name: str) -> str:
+    return INDEX_NAMES_ZH.get(name, name) if zh() else name
+
+
+def group_name(name: str) -> str:
+    return GROUPS_ZH.get(name, name) if zh() else name
