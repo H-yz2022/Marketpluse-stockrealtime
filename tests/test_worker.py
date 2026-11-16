@@ -208,15 +208,15 @@ def test_clock_deadlines_and_retries(monkeypatch):
     s = scheduler.Scheduler()
     t = datetime(2026, 10, 30, 15, 10, tzinfo=BJ)                # Friday
     s.tick(t)
-    assert [n for n, _ in submitted] == ["accumulation", "cn_close", "longterm"]   # due ones only
+    assert [n for n, _ in submitted] == ["accumulation", "cn_close", "dipbuy", "longterm"]   # due ones only
     s.tick(t)
-    assert len(submitted) == 3                                    # running: not queued twice
+    assert len(submitted) == 4                                    # running: not queued twice
     for j in s.jobs.values():
         j.active, j.state = False, "failed"
     s.attempts = {k: v - 11 * 60 for k, v in s.attempts.items()}  # 11 minutes later: retried, forced
     s.tick(t)
-    assert len(submitted) == 6 and all(f for _, f in submitted[3:])
-    done.update({"accumulation", "cn_close"})
+    assert len(submitted) == 8 and all(f for _, f in submitted[4:])
+    done.update({"accumulation", "cn_close", "dipbuy"})
     for j in s.jobs.values():                                     # finished, but 长线 still has no result
         j.active, j.state = False, "done"
     states = {x["label"]: x["state"] for x in s.status(datetime(2026, 10, 30, 15, 50, tzinfo=BJ))}

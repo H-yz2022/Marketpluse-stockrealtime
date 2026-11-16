@@ -82,6 +82,7 @@ def job_runner() -> jobs.ProcessRunner:
 FRONT_VIEWS = {
     "tail": "尾盘选股 · Late-session",
     "acc": "主力暗中吸筹 · Morning",
+    "dip": "低位吸筹 · Buy the dip",
     "close": "收盘选股 · 16:00",
     "long": "长线 · Long-term",
     "lab": "策略实验室 · Strategy lab",
@@ -94,6 +95,8 @@ def _other_view(view: str) -> None:
 
     if view == "acc":
         screens_view.accumulation_section()
+    elif view == "dip":
+        screens_view.dipbuy_section()
     elif view == "close":
         _close_screen()
     elif view == "long":

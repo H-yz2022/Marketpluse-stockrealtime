@@ -12,7 +12,7 @@ from datetime import time
 import pandas as pd
 import streamlit as st
 
-from stockrt import accumulation, checkpoint, longterm, sample
+from stockrt import accumulation, checkpoint, dipbuy, longterm, sample
 from stockrt.calendar import now_bj
 from stockrt.export import to_csv_bytes
 from ui.fmt import style_signed
@@ -49,6 +49,10 @@ def acc_key(day, reached) -> tuple:
 
 def longterm_key(day) -> tuple:
     return ("longterm", str(day))
+
+
+def dipbuy_key(day, bucket: str) -> tuple:
+    return ("dipbuy", str(day), bucket)
 
 
 def accumulation_section() -> None:
@@ -202,6 +206,78 @@ def longterm_section() -> None:
         "float_mcap": P.NumberColumn("流通市值", format="compact"), "missed": P.TextColumn("Missed")})
     st.download_button("长线 (CSV)", to_csv_bytes(show[cols]), file_name=f"longterm_{res['day']}.csv", mime="text/csv",
                        on_click="ignore", icon=":material/download:")
+    for n in res.get("notes", []):
+        st.caption(n)
+
+
+# ---------------------------------------------------------------------------------------------- 低位吸筹
+
+DIP_TABLE = [
+    ("drop5_min", "近5个交易日跌幅超过 · Fall over the last 5 sessions above (%)", 10.0),
+    ("inflow_min_m", "今日主力资金净流入 > · Today's main-fund net inflow above (¥ million)", 30.0),
+    ("ma_n", "现价站上N日均线 · Price above the N-day moving average (20 / 60 / 120)", 60.0),
+    ("profit_min_m", "近12个月扣非净利润 > · Net profit excl. one-offs, last 12 months, above (¥ million)", 0.0),
+]
+
+
+def dipbuy_section() -> None:
+    st.subheader("低位吸筹 · Buy the dip, avoid the falling knife", anchor=False)
+    with st.container(border=True):
+        st.markdown(f"**{dipbuy.QUERY_ZH}**")
+        st.caption(dipbuy.QUERY_EN + " Live during the session (recomputed when opened, at most every 15 minutes), "
+                   "computed once and fixed after the 15:00 close.")
+    if sample.is_sample():
+        st.caption("Runs on live data only - turn on **Live data** in the sidebar.")
+        return
+    now = now_bj()
+    day = checkpoint.latest_session_day("CN")
+    res = dipbuy.load(day)
+    if dipbuy.stale(res, now):
+        job = _runner().submit(dipbuy_key(day, dipbuy.bucket(now) if day == now.date() else "close"), "dipbuy",
+                               {"day": str(day), "workers": checkpoint.WORKERS}, front=True)
+        if job.active or job.state == "failed":
+            job_card(job, "低位吸筹 · 正在筛选", "5-session fall, moving averages, today's main-fund flow and profit",
+                     typical=90)
+        res = dipbuy.load(day) or res
+    if res is None:
+        older = [d for d in dipbuy.days() if d < day]
+        res = dipbuy.load(older[0]) if older else None
+        if res is None:
+            return
+    when = "fixed after the close" if res["final"] else f"live, as of {res['computed'][-5:]} Beijing"
+    st.caption(f":material/schedule: {pd.Timestamp(res['day']):%a %d %b} · {when}.")
+    table = pd.DataFrame([{"启用 · On": True, "条件 · Condition": lbl, "数值 · Value": v} for _, lbl, v in DIP_TABLE])
+    edited = st.data_editor(table, hide_index=True, key="dip_settings", disabled=["条件 · Condition"],
+                            column_config={"启用 · On": P.CheckboxColumn(width="small"),
+                                           "数值 · Value": P.NumberColumn(step=1.0)})
+    v = {k: (row["数值 · Value"], bool(row["启用 · On"])) for (k, _, _), (_, row) in zip(DIP_TABLE, edited.iterrows())}
+    p = dipbuy.Params(drop5_min=v["drop5_min"][0], use_drop=v["drop5_min"][1],
+                      inflow_min_m=v["inflow_min_m"][0], use_inflow=v["inflow_min_m"][1],
+                      ma_n=int(v["ma_n"][0]), use_ma=v["ma_n"][1],
+                      profit_min_m=v["profit_min_m"][0], use_profit=v["profit_min_m"][1])
+    d = dipbuy.apply(res["frame"], p)
+    hits = d[d["passes"]]
+    st.markdown(f"**{len(hits)} stocks** met every condition · {res.get('shortlisted')} stocks fell "
+                f"{dipbuy.SHORTLIST_DROP:g}% or more over 5 sessions and were checked.")
+    show = hits if not hits.empty else d[d["rules_met"] == d["rules_met"].max()].head(15)
+    if hits.empty:
+        st.caption("Nothing met every condition - showing the closest.")
+    ma_n = min((20, 60, 120), key=lambda n: abs(n - p.ma_n))
+    cols = ["code", "name", "price", "pct_change", "drop5", "main_net", f"above_ma{ma_n}_pct", "profit_ttm",
+            "turnover_rate", "float_mcap", "missed"]
+    st.dataframe(style_signed(show[cols], ["pct_change", "drop5", "main_net"]), hide_index=True, height=320,
+                 column_config={
+                     "code": P.TextColumn("Code"), "name": P.TextColumn("Name"),
+                     "price": P.NumberColumn("现价", format="%.2f"),
+                     "pct_change": P.NumberColumn("今日涨幅", format="%+.2f%%"),
+                     "drop5": P.NumberColumn("近5日涨跌", format="%+.1f%%"),
+                     "main_net": P.NumberColumn("今日主力净流入", format="compact"),
+                     f"above_ma{ma_n}_pct": P.NumberColumn(f"距MA{ma_n}", format="%+.1f%%"),
+                     "profit_ttm": P.NumberColumn("扣非净利润 TTM", format="compact"),
+                     "turnover_rate": P.NumberColumn("换手率", format="%.2f%%"),
+                     "float_mcap": P.NumberColumn("流通市值", format="compact"), "missed": P.TextColumn("Missed")})
+    st.download_button("低位吸筹 (CSV)", to_csv_bytes(show[cols]), file_name=f"dipbuy_{res['day']}.csv",
+                       mime="text/csv", on_click="ignore", icon=":material/download:")
     for n in res.get("notes", []):
         st.caption(n)
 

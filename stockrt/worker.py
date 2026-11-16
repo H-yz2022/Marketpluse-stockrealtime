@@ -10,6 +10,7 @@ Tasks:
     frontpage      尾盘选股 checkpoints for a session (A-shares or Hong Kong)
     accumulation   主力暗中吸筹 at the checkpoints reached so far
     longterm       长线 on the closing data
+    dipbuy         低位吸筹 - live during the session, fixed after the close
     close_screen   收盘选股 (16:00)
     lab_today      Strategy lab: today's signals
     cn_close       the A-share close: volume book + front page
@@ -36,6 +37,12 @@ class Progress:
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text(json.dumps({"progress": f, "message": msg, "error": error, "where": where, "at": time.time()},
                                   ensure_ascii=False), encoding="utf-8")
+        for _ in range(20):             # Windows refuses the swap while the web server is reading the file
+            try:
+                os.replace(tmp, self.path)
+                return
+            except PermissionError:
+                time.sleep(0.05)
         os.replace(tmp, self.path)
 
     def __call__(self, f: float, msg: str) -> None:
@@ -89,6 +96,17 @@ def longterm(a: dict, progress) -> str:
     return f"{res['shortlisted']} shortlisted"
 
 
+def dipbuy(a: dict, progress) -> str:
+    from . import checkpoint, realtime
+    from . import dipbuy as dip
+
+    snap = realtime.market_snapshot("CN")
+    if checkpoint.session_day(snap) != _day(a):
+        raise RuntimeError("the quotes have moved on to another session")
+    res = dip.run(_day(a), snap, progress, workers=a.get("workers", 12))
+    return f"{int(dip.apply(res['frame']).passes.sum())} of {res['shortlisted']} shortlisted"
+
+
 def close_screen(a: dict, progress) -> str:
     from . import archive, checkpoint, closescreen, realtime
 
@@ -137,6 +155,7 @@ def selftest(a: dict, progress) -> str:
 
 
 TASKS = {"selftest": selftest, "frontpage": frontpage, "accumulation": accumulation, "longterm": longterm,
+         "dipbuy": dipbuy,
          "close_screen": close_screen, "lab_today": lab_today, "cn_close": cn_close, "sync": sync}
 
 

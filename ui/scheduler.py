@@ -36,6 +36,7 @@ class Task:
 TASKS = (
     Task("accumulation", "主力暗中吸筹", time(11, 16), time(11, 40)),
     Task("cn_close", "尾盘选股 15:00", time(15, 2), time(15, 20)),
+    Task("dipbuy", "低位吸筹", time(15, 3), time(15, 30)),
     Task("longterm", "长线", time(15, 6), time(15, 40)),
     Task("close_screen", "收盘选股", time(16, 1), time(16, 20)),
     Task("hk_close", "港股 16:00", time(16, 12), time(16, 40), mkt="HK"),
@@ -43,10 +44,13 @@ TASKS = (
 
 
 def _done(t: Task, day: date) -> bool:
-    from stockrt import accumulation, archive, longterm
+    from stockrt import accumulation, archive, dipbuy, longterm
 
     if t.name == "accumulation":
         return accumulation.load(day) is not None
+    if t.name == "dipbuy":
+        res = dipbuy.load(day)
+        return res is not None and bool(res["final"])
     if t.name == "cn_close":
         return day in archive.sessions("CN")
     if t.name == "longterm":
@@ -60,7 +64,7 @@ def _submit(t: Task, day: date, force: bool):
     from stockrt import accumulation, checkpoint
     from stockrt.screener import ScreenParams
     from ui.picks_view import frontpage_key, job_runner
-    from ui.screens_view import acc_key, longterm_key
+    from ui.screens_view import acc_key, dipbuy_key, longterm_key
 
     r, w = job_runner(), checkpoint.WORKERS
     if t.name == "accumulation":
@@ -73,6 +77,8 @@ def _submit(t: Task, day: date, force: bool):
                         force=force)
     if t.name == "longterm":
         return r.submit(longterm_key(day), "longterm", {"day": str(day), "workers": w}, force=force)
+    if t.name == "dipbuy":
+        return r.submit(dipbuy_key(day, "close"), "dipbuy", {"day": str(day), "workers": w}, force=force)
     return r.submit(("close_screen", str(day)), "close_screen", {"day": str(day), "workers": w}, force=force)
 
 

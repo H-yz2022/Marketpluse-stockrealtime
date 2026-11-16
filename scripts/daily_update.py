@@ -41,7 +41,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from stockrt import accumulation, archive, checkpoint, closescreen, lab, longterm, panel, realtime  # noqa: E402
+from stockrt import accumulation, archive, checkpoint, closescreen, dipbuy, lab, longterm, panel, realtime  # noqa: E402
 from stockrt.calendar import now_bj  # noqa: E402
 
 LOG: list[dict] = []   # written to results/job_log.json, so failures are visible without GitHub access
@@ -133,6 +133,14 @@ def main() -> int:
         res = longterm.run(day, cn_snapshot(), workers=args.workers)
         return f"{day}: {int(longterm.apply(res['frame']).passes.sum())} of {res['shortlisted']}"
 
+    def dip():
+        day = checkpoint.session_day(cn_snapshot())
+        saved = dipbuy.load(day)
+        if saved is not None and saved["final"]:
+            return f"{day} already saved"
+        res = dipbuy.run(day, cn_snapshot(), workers=args.workers)
+        return f"{day}: {int(dipbuy.apply(res['frame']).passes.sum())} of {res['shortlisted']}"
+
     def morning_accumulation():
         day = checkpoint.session_day(cn_snapshot())
         if accumulation.load(day) is not None:
@@ -152,12 +160,14 @@ def main() -> int:
         return panel.save(panel.build(codes, day, workers=args.workers))
 
     ok &= step("长线 (after the close)", long_term)
+    ok &= step("低位吸筹 (after the close)", dip)
     ok &= step("主力暗中吸筹 (morning checkpoints)", morning_accumulation)
     ok &= step("History panel (for tomorrow's live updates)", history_panel)
     ok &= step("Rolling window", lambda: f"{len(archive.prune_sessions('CN')) + len(archive.prune_sessions('HK'))} "
                                          f"session files, {len(archive.prune_volumes('CN'))} volume books and "
                                          f"{len(archive.prune_screens())} screen files, "
-                                         f"{len(longterm.prune()) + len(accumulation.prune())} other files removed")
+                                         f"{sum(len(m.prune()) for m in (longterm, accumulation, dipbuy))} other "
+                                         "files removed")
     archive.write_index()
     archive.write_job_log(LOG, now_bj())
     ok &= step("Manifest", lambda: archive.write_manifest(now_bj()))

@@ -105,3 +105,32 @@ def test_job_card_shows_a_failure_and_a_queue_instead_of_a_countdown(monkeypatch
     assert "第 2 次尝试" in text and "timed out" in text
     assert [m.label for m in at.metric][0].startswith("前面还有")
 
+
+def test_dipbuy_rules_ttm_and_refresh():
+    from datetime import datetime
+
+    from stockrt import dipbuy
+
+    rows = pd.DataFrame({"date": pd.to_datetime(["2025-09-30", "2025-12-31", "2026-09-30"]),
+                         "value": [70.0, 100.0, 40.0]})
+    assert dipbuy._ttm(rows) == (70.0, "to 2026-09")                 # 40 + 100 - 70
+    assert dipbuy._ttm(rows.iloc[:2])[0] == 100.0                    # the latest report is a full year
+    assert dipbuy._ttm(rows.iloc[[2]]) == (None, None)               # no year-earlier figures: unknown
+
+    frame = pd.DataFrame({"code": ["a", "b", "c", "d"], "drop5": [-12.0, -12.0, -8.0, -15.0], "drop5_rough": np.nan,
+                          "main_net": [40e6, 10e6, 50e6, 60e6], "above_ma20_pct": 1.0,
+                          "above_ma60_pct": [2.0, 3.0, 1.0, -4.0], "above_ma120_pct": 1.0,
+                          "profit_ttm": [1e8, 1e8, 1e8, 1e8]})
+    d = dipbuy.apply(frame).set_index("code")
+    assert d.loc["a", "passes"] and not d.loc["b", "passes"] and not d.loc["c", "passes"]
+    assert d.loc["b", "missed"] == "主力净流入" and d.loc["d", "missed"] == "MA60"
+    assert dipbuy.apply(frame, dipbuy.Params(ma_n=60, use_ma=False)).set_index("code").loc["d", "passes"]
+
+    live = {"final": False, "computed": "2026-11-16 10:00"}
+    assert not dipbuy.stale(live, datetime(2026, 11, 16, 10, 10))       # fresh enough
+    assert dipbuy.stale(live, datetime(2026, 11, 16, 10, 20))           # older than 15 minutes
+    assert dipbuy.stale(live, datetime(2026, 11, 16, 15, 5))            # after the close: the fixed version
+    assert not dipbuy.stale({**live, "final": True}, datetime(2026, 11, 17, 10, 0))
+    assert dipbuy.bucket(datetime(2026, 11, 16, 10, 37)) == "1030" and dipbuy.bucket(
+        datetime(2026, 11, 16, 15, 1)) == "close"
+
