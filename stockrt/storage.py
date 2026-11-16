@@ -70,6 +70,37 @@ def save_frame(kind: str, key: str, df: pd.DataFrame) -> None:
     _atomic_write(_path(kind, key, "parquet"), lambda tmp: df.to_parquet(tmp, index=False))
 
 
+# How long cache files are kept since they were last written. The per-day results are published (and rebuilt if
+# ever needed); daily bars are re-downloaded on demand. Without this a server that stays up keeps every day's files.
+MAX_AGE_DAYS = {"checkpoints": 7, "accumulation": 7, "dipbuy": 7, "longterm": 7, "daily": 30}
+
+
+def prune_stale(now: float | None = None) -> tuple[int, int]:
+    """Delete cache files older than MAX_AGE_DAYS for their kind. Returns (files removed, bytes freed)."""
+    now = now or time.time()
+    removed = freed = 0
+    for kind, days in MAX_AGE_DAYS.items():
+        d = CACHE_DIR / kind
+        if not d.exists():
+            continue
+        for f in d.iterdir():
+            try:
+                st = f.stat()
+                if f.is_file() and now - st.st_mtime > days * 86400:
+                    f.unlink()
+                    removed, freed = removed + 1, freed + st.st_size
+            except OSError:
+                continue
+    return removed, freed
+
+
+def size(path: Path) -> int:
+    """Bytes under a folder (0 if missing)."""
+    if not path.exists():
+        return 0
+    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+
+
 def delete(kind: str, key: str) -> None:
     """Remove a key's frame and JSON, if any."""
     for ext in ("parquet", "json"):

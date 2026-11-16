@@ -1,7 +1,8 @@
 name: Desktop app
 
-# Builds the Windows app (dist/ChinaHKMarkets.exe) and puts it on the repository's "desktop" release, so it can be
-# downloaded from GitHub without any tools. Runs when the desktop code changes, or by hand (Actions -> Run workflow).
+# Builds the Windows app (dist/ChinaHKMarkets.exe) and puts it on the repository's "desktop" release, with
+# version.json (build id + SHA-256). Installed copies read version.json at start and update themselves to it.
+# Runs when the desktop code changes, or by hand (Actions -> Run workflow). Only the newest version is kept.
 on:
   push:
     branches: [main]
@@ -10,6 +11,10 @@ on:
 
 permissions:
   contents: write
+
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -23,15 +28,27 @@ jobs:
       - name: Install the build tools
         run: pip install -r desktop/requirements.txt
       - name: Build
+        shell: bash
         run: |
+          echo "BUILD = \"${GITHUB_SHA::12}\"" > desktop/build_info.py
           python desktop/make_icon.py
-          pyinstaller --noconfirm --onefile --windowed --name ChinaHKMarkets --icon desktop/icon.ico desktop/app.py
-      - name: Publish to the "desktop" release
+          pyinstaller --noconfirm --onefile --windowed --name ChinaHKMarkets --icon desktop/icon.ico \
+            --paths desktop --hidden-import build_info desktop/app.py
+          python - <<'EOF'
+          import hashlib, json, os, time
+          data = open("dist/ChinaHKMarkets.exe", "rb").read()
+          json.dump({"build": os.environ["GITHUB_SHA"][:12], "sha256": hashlib.sha256(data).hexdigest(),
+                     "size": len(data), "built": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime())},
+                    open("dist/version.json", "w"))
+          EOF
+          cat dist/version.json
+      - name: Publish to the "desktop" release (the exe first, then the version that points to it)
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release view desktop >/dev/null 2>&1 || gh release create desktop --title "Desktop app (Windows)" \
-            --notes "ChinaHKMarkets.exe opens https://china-hk-markets.streamlit.app/ in its own window. Rebuilt automatically when the desktop code changes."
+            --notes "ChinaHKMarkets.exe opens https://china-hk-markets.streamlit.app/ in its own window and updates itself. Rebuilt automatically when the desktop code changes."
           gh release upload desktop dist/ChinaHKMarkets.exe --clobber
-          echo "Download: https://github.com/${GITHUB_REPOSITORY}/releases/tag/desktop"
+          gh release upload desktop dist/version.json --clobber
+          echo "Download: https://github.com/${GITHUB_REPOSITORY}/releases/download/desktop/ChinaHKMarkets.exe"

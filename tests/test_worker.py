@@ -88,7 +88,7 @@ def test_time_left_uses_real_speed_and_admits_when_it_cannot_tell():
     assert 65 <= eta(job) <= 75
     slow = jobs.Job(("y",), state="running", started=time.time() - 300, typical=100, progress=0.05)
     assert eta(slow) is None                                      # past its usual time: no made-up countdown
-    assert _about(5) == "即将完成 · almost done" and _about(83).startswith("约 1 分 20 秒")
+    assert _about(5) == "即将完成" and _about(83) == "约 1 分 20 秒"            # Chinese by default
 
 
 def _snapshot(n=250):

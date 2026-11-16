@@ -102,3 +102,23 @@ def test_site_does_not_wait_for_the_late_job(monkeypatch, hhmm):
     monkeypatch.setattr(published, "enabled", lambda: True)
     monkeypatch.setattr("stockrt.calendar.now_bj", lambda: datetime(2026, 10, 12, *hhmm, tzinfo=BJ))
     assert published.await_close("CN", date(2026, 10, 12)) is False
+
+
+def test_old_cache_files_expire(tmp_path, monkeypatch):
+    import os
+    import time
+
+    from stockrt import storage
+
+    monkeypatch.setattr(storage, "CACHE_DIR", tmp_path)
+    old, fresh, kept = tmp_path / "checkpoints" / "old.parquet", tmp_path / "checkpoints" / "new.parquet", \
+        tmp_path / "universe" / "cn.json"
+    for f in (old, fresh, kept):
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("x" * 100)
+    week = time.time() - 8 * 86400
+    os.utime(old, (week, week))
+    os.utime(kept, (week, week))                                 # not a per-day kind: kept
+    assert storage.prune_stale() == (1, 100)
+    assert not old.exists() and fresh.exists() and kept.exists()
+

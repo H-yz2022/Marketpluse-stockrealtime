@@ -166,7 +166,7 @@ def load_volumes(mkt: str, before: date) -> tuple[date, pd.DataFrame] | None:
 
 
 KEEP_SESSIONS = 5   # sessions kept in full (a trading week); the other screens keep this many too
-KEEP_HISTORY = 250  # front-page sessions kept in the Past sessions list: about a year, compacted after the first week
+KEEP_HISTORY = 60   # front-page sessions in the Past sessions list: about 12 weeks, compacted after the first week
 KEEP_BOOKS = 5      # volume books kept: "yesterday", the 4-day query, and 超跌反弹's 5-session return
 COMPACT_TOP = 15    # the "closest stocks" a session's page falls back to when nothing passed
 

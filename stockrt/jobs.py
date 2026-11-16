@@ -169,6 +169,9 @@ class ProcessRunner:
     def _trim_logs(self) -> None:
         worker_log = self.dir / "worker.log"
         try:
+            for f in self.dir.glob("*.json"):           # finished jobs' progress files (one per job key)
+                if time.time() - f.stat().st_mtime > 86400:
+                    f.unlink()
             if worker_log.exists() and worker_log.stat().st_size > 1_000_000:
                 worker_log.unlink()
             if self.history_file.exists():

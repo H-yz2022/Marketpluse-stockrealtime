@@ -26,3 +26,4 @@ sample_data.tmp/
 build/
 dist/
 *.spec
+desktop/build_info.py

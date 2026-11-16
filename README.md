@@ -10,6 +10,11 @@ the live data and exact column definitions, for use with whichever assistant you
 
 ## Pages
 
+The interface is in **Chinese by default**, one language at a time; the switch at the top of the sidebar changes it
+to English (kept in the address as `?lang=en`). Interface text lives next to the code as `t("中文", "English")`
+(`ui/i18n.py`); text the data layer writes in English (market status, run notes, strategy rules) is translated there
+and in `ui/lab_zh.py`.
+
 | Page | What it does |
 |---|---|
 | **尾盘选股 · Late-session picks** *(front page)* | The late-session query, answered: non-ST, +3–5%, volume ratio > 1, turnover 3–8%, MA5 crossing above MA10, rising MAs, volume and price up, main funds in, beating the CSI 300, float cap ¥5–20B. It shows the latest session **as it stood at 14:00, 14:30 and the 15:00 close** (rebuilt from minute data, or from a real capture when one exists) and gives one ranked list. A checkpoint that hasn't come yet says why and when, e.g. "Not yet - the market closes at 15:00 Beijing (in 41 min)". On a holiday it names the holiday and the reopening day. **Tier** comes first, for reliability (A = every rule at every checkpoint), then a 0–100 **signal score**. A confidence flag and a hindsight "14:00 → close" column sit alongside. The page is **never empty**: the newest saved session shows instantly, and a checkpoint that still needs computing is rebuilt by the background worker (see *Why the site stays up*), then swapped in automatically. **Past sessions** are in a collapsed section that loads on demand: pick a week, then a day from Monday to Friday. Before the open, a **pre-open auction (集合竞价)** panel shows indicative prices and gaps. After the open, **Opening auction & volume queries** (collapsed; on weekends and holidays it shows the latest session) offers an overview, **Volume ≥ N× yesterday** (your 5× query, whole market, against the previous session's closing volumes) and a **竞价选股 auction screen**: gap 2–7%, not a limit-up open, auction value ≥ ¥10M, auction volume ≥ 5% of yesterday's, auction turnover ≥ 0.3%, float cap ¥3–50B, plus optional yesterday-up, yesterday limit-up (接力) and gap-holding filters, each with the reason it matters. A **selector at the top of the page shows one screen at a time** (only the chosen one loads, which keeps the page light): 尾盘选股 above, then the four below. **收盘选股 · after-close screen (16:00)**: 请列出成交量翻倍，突破压力位，换手率＞3%，站上牛熊线的非ST股票 - volume at least 2× the previous session's, close above the previous 20 sessions' high (or 60), turnover above 3%, close above the 250-day MA (年线; or the 120-day), non-ST. It is computed once a day from 16:00 Beijing on the closing data and shown as fixed figures, with the last 5 sessions selectable. **低位吸筹 · buy the dip, avoid the falling knife**: down more than 10% over the last 5 trading days, today's main-fund net inflow above ¥30M, price above the 60-day moving average, and positive net profit excluding non-recurring items over the last 12 months (latest year-to-date report + last annual − the same period a year earlier, East Money F10) - live during the session (recomputed when opened, at most every 15 minutes), fixed after the close, every threshold editable. **主力暗中吸筹 · quiet accumulation (9:45 – 11:15)**: 昨日成交量大于前4日成交量, and today 主力资金流向环比增长率突增 with −1% < 涨幅 < 1% at 9:45, 10:15, 10:45 and 11:15 (main-fund inflow from each stock's minute money flow, compared with the previous checkpoint; thresholds editable in the conditions table). **长线 · 收盘数据，给明天建仓做参考**: 市盈率 < 20, ROE > 5% (trailing, P/B ÷ P/E), 5 < 股价 < 10, 换手率 > 4%, institutions holding the stock, 10-day main-fund inflow, and MA5/10/20 converged on one of the last 3 sessions - computed after the close, every threshold editable in its table. And the **Strategy lab · 策略实验室** (see below). |
@@ -69,13 +74,19 @@ memory, and it sleeps only after **12 hours** without visitors (a visitor wakes 
 3. Deploy. No secrets are needed: live data, the results branch and 24 parallel requests are the defaults. The
    site updates by itself after every push. Its log is under **Manage app** (lines starting `[job]`).
 
-**Windows desktop app.** `ChinaHKMarkets.exe` (about 10 MB) opens the site in its own window, with an icon, the
-taskbar and the Start menu like any program, and no browser tabs. Download it from the repository's
+**Windows desktop app.** `ChinaHKMarkets.exe` (about 10 MB) opens the site in its own window - half the screen,
+centred - with an icon, the taskbar and the Start menu like any program, and no browser tabs. The front page links to
+it (**下载 Windows 桌面版**); only the newest version is kept, on the repository's
 [desktop release](https://github.com/H-yz2022/Marketpluse-stockrealtime/releases/tag/desktop), which GitHub rebuilds
-whenever `desktop/` changes. It uses Windows' built-in Edge engine, so nothing else is installed and it always shows
-the latest site; download buttons save to Downloads, and without a connection it says so and offers to retry. The
-file isn't signed, so the first time Windows may say it "protected your PC": click *More info → Run anyway*. To build
-it yourself: `bash desktop/build.sh` (Python 3.10-3.12).
+whenever `desktop/` changes. The app **updates itself**: at each start it compares its build with the release's
+`version.json` and, when a newer one exists, downloads it, checks its SHA-256, swaps it in and restarts (any failure
+keeps the current version). It shows the site without the hosting service's buttons (Fork, GitHub, the Streamlit
+badge) and without website-only parts (the download link, the sample-data switch); if the site is asleep, Streamlit's
+wake-up page shows first and the app switches over once it answers. It remembers the language chosen on the site,
+caps its own browser cache at 32 MB, and without a connection it says so and offers to retry. It uses Windows'
+built-in Edge engine, so nothing else is installed. The file isn't signed, so the first time Windows may say it
+"protected your PC": click *More info → Run anyway*. To build it yourself: `bash desktop/build.sh` (Python
+3.10-3.12).
 
 Render works too (`render.yaml`, New → Blueprint), but its free plan sleeps after 15 idle minutes and shares **750
 hours a month across every free service in the account**: running out suspends the site until the 1st, as happened
@@ -136,11 +147,15 @@ never touched. The website reads that branch through `stockrt/published.py`: it 
 `manifest.json` at most once a minute and downloads it when it changes. A free-tier server that restarts
 with an empty disk fetches them again first, showing a short "loading" notice for those seconds rather than old data.
 
-**Past sessions add up slowly, for free.** The newest **5 sessions** keep every candidate. Older ones are compacted to
-what their page shows (every stock that passed, the near misses and the closest few; the ranked list is unchanged,
-checked on all 31 saved sessions) and are kept for **250 sessions, about a year**. Measured: about 50 KB per A-share
-session and 30 KB per Hong Kong session, so at most about 20 MB after a year. The results branch stays one commit, so
-GitHub's history doesn't grow with it. 主力暗中吸筹, 收盘选股 and 长线 keep 5 sessions (they store whole candidate lists), plus
+**Past sessions: a fixed window, so the data stops growing.** The newest **5 sessions** keep every candidate. Older
+ones are compacted to what their page shows (every stock that passed, the near misses and the closest few; the ranked
+list is unchanged, checked on all 31 saved sessions) and only the newest **60 sessions (about 12 weeks)** are kept.
+Measured: about 50 KB per A-share session and 30 KB per Hong Kong session, so the past sessions level off at about
+5 MB, and the whole publication (what a server downloads when it starts) at about 15-18 MB; it was 14 MB (a 12.5 MB
+download, under a second) in November 2026. The results branch stays one commit, so GitHub's history doesn't grow.
+On the server, cached files expire too: each day's intermediate results after 7 days, daily price history after 30
+days, finished jobs' progress files after a day (`stockrt/storage.py`, checked once a day). The **Data sources** page
+shows what is stored. 主力暗中吸筹, 收盘选股 and 长线 keep 5 sessions (they store whole candidate lists), plus
 **5 volume books**. Sessions from before this rule are kept with the code in `results/` and merged in automatically. The
 Strategy lab's live log is kept whole: it is the test itself, and grows by a few MB a year. Readable copies: `README.md`,
 `cn/<date>.md` and `lab/README.md` on the `results` branch.

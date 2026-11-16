@@ -115,6 +115,14 @@ st.markdown("**Published results** · computed once after each close by the dail
 st.caption(f"Repository: {published.repo() or '—'} · branch `{published.BRANCH}` · in use: {pub.get('source')} · "
            f"published {man.get('updated', '—')} · sessions {', '.join(man.get('sessions', {}).get('CN', [])) or '—'}"
            + (f" · last check: {pub['error']}" if pub.get("error") else "") + f" · folder: {archive.RESULTS_DIR}")
+from stockrt import storage  # noqa: E402
+from stockrt.config import DATA_DIR  # noqa: E402
+
+st.caption("Stored on this server: " + " · ".join(
+    f"{name} {storage.size(path) / 1e6:.1f} MB" for name, path in (
+        ("published results", archive.RESULTS_DIR), ("caches", CACHE_DIR), ("job log", DATA_DIR / "jobs")))
+    + f". Past sessions keep the newest {archive.KEEP_HISTORY}; cached files expire after "
+    + ", ".join(f"{k} {v} days" for k, v in storage.MAX_AGE_DAYS.items()) + ".")
 job_log = archive.RESULTS_DIR / "job_log.json"
 if job_log.exists():
     import json

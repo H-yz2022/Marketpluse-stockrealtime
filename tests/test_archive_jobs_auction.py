@@ -85,9 +85,15 @@ def test_front_page_never_blocks_offline():
 
     sample.set_mode("sample")
     try:
-        at = AppTest.from_file(str(Path(__file__).resolve().parent.parent / "streamlit_app.py"), default_timeout=60)
+        app = str(Path(__file__).resolve().parent.parent / "streamlit_app.py")
+        at = AppTest.from_file(app, default_timeout=60)
         at.run()
         assert not at.exception
-        assert any(m.label == "Session" for m in at.metric)
+        assert any(m.label == "交易日" for m in at.metric)              # Chinese by default
+        assert not any(m.label == "Session" for m in at.metric)         # one language at a time
+        en = AppTest.from_file(app, default_timeout=60)
+        en.query_params["lang"] = "en"
+        en.run()
+        assert not en.exception and any(m.label == "Session" for m in en.metric)
     finally:
         sample.set_mode("live")

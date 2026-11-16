@@ -155,11 +155,14 @@ def needs_download() -> bool:
 
 
 def _merge_bundled(path: Path) -> None:
-    """Add the past sessions kept with the code that the publication doesn't hold (older ones it never had)."""
+    """Add the past sessions kept with the code that the publication doesn't hold (older ones it never had), but
+    never ones older than the window the publication keeps (archive.KEEP_HISTORY sessions)."""
     for mkt in ("cn", "hk"):
+        published = sorted(f.stem for f in (path / mkt).glob("*.json"))
+        oldest = published[0] if len(published) >= archive.KEEP_HISTORY else ""
         for f in (ROOT / "results" / mkt).glob("*.*"):
             target = path / mkt / f.name
-            if not target.exists():
+            if not target.exists() and f.name.split(".")[0] >= oldest:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(f, target)
 

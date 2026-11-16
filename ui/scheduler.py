@@ -88,6 +88,7 @@ class Scheduler:
         self.jobs: dict[tuple[str, str], object] = {}
         self.last_error: str | None = None
         self.last_sync = 0.0
+        self.last_prune: date | None = None
         self.first_sync = None          # the download a freshly started server does before anything else
         self.sync_checked = False
         threading.Thread(target=self._loop, daemon=True, name="site-scheduler").start()
@@ -106,6 +107,7 @@ class Scheduler:
             return
         now = now or now_bj()
         self._sync(now)
+        self._prune(now)
         if self.first_sync is not None and self.first_sync.active:
             return                      # what's already published must not be recomputed
         for t in TASKS:
@@ -140,6 +142,20 @@ class Scheduler:
                 self.first_sync = self.first_sync or job
         finally:
             self.sync_checked = True
+
+    def _prune(self, now: datetime) -> None:
+        """Once a day: drop old cache files and finished jobs' progress files, so a server that stays up for weeks
+        doesn't keep every day's data."""
+        if self.last_prune == now.date():
+            return
+        self.last_prune = now.date()
+        from stockrt import storage
+        from ui.picks_view import job_runner
+
+        n, freed = storage.prune_stale()
+        job_runner()._trim_logs()
+        if n:
+            log.info("pruned %d cache files (%.1f MB)", n, freed / 1e6)
 
     @property
     def syncing(self) -> bool:
