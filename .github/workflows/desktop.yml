@@ -1,0 +1,37 @@
+name: Desktop app
+
+# Builds the Windows app (dist/ChinaHKMarkets.exe) and puts it on the repository's "desktop" release, so it can be
+# downloaded from GitHub without any tools. Runs when the desktop code changes, or by hand (Actions -> Run workflow).
+on:
+  push:
+    branches: [main]
+    paths: ["desktop/**", ".github/workflows/desktop.yml"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the build tools
+        run: pip install -r desktop/requirements.txt
+      - name: Build
+        run: |
+          python desktop/make_icon.py
+          pyinstaller --noconfirm --onefile --windowed --name ChinaHKMarkets --icon desktop/icon.ico desktop/app.py
+      - name: Publish to the "desktop" release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view desktop >/dev/null 2>&1 || gh release create desktop --title "Desktop app (Windows)" \
+            --notes "ChinaHKMarkets.exe opens https://china-hk-markets.streamlit.app/ in its own window. Rebuilt automatically when the desktop code changes."
+          gh release upload desktop dist/ChinaHKMarkets.exe --clobber
+          echo "Download: https://github.com/${GITHUB_REPOSITORY}/releases/tag/desktop"

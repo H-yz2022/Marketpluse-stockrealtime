@@ -22,3 +22,7 @@ sample_data.tmp/
 .idea/
 .vscode/
 *.log
+.venv-desktop/
+build/
+dist/
+*.spec

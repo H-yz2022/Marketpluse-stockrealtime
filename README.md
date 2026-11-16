@@ -69,6 +69,14 @@ memory, and it sleeps only after **12 hours** without visitors (a visitor wakes 
 3. Deploy. No secrets are needed: live data, the results branch and 24 parallel requests are the defaults. The
    site updates by itself after every push. Its log is under **Manage app** (lines starting `[job]`).
 
+**Windows desktop app.** `ChinaHKMarkets.exe` (about 10 MB) opens the site in its own window, with an icon, the
+taskbar and the Start menu like any program, and no browser tabs. Download it from the repository's
+[desktop release](https://github.com/H-yz2022/Marketpluse-stockrealtime/releases/tag/desktop), which GitHub rebuilds
+whenever `desktop/` changes. It uses Windows' built-in Edge engine, so nothing else is installed and it always shows
+the latest site; download buttons save to Downloads, and without a connection it says so and offers to retry. The
+file isn't signed, so the first time Windows may say it "protected your PC": click *More info → Run anyway*. To build
+it yourself: `bash desktop/build.sh` (Python 3.10-3.12).
+
 Render works too (`render.yaml`, New → Blueprint), but its free plan sleeps after 15 idle minutes and shares **750
 hours a month across every free service in the account**: running out suspends the site until the 1st, as happened
 in November 2026. Its $7-a-month Starter instance never sleeps.

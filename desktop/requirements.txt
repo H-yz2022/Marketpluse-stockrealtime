@@ -1,0 +1,4 @@
+# The desktop app's build tools (not needed by the website). Python 3.10-3.12.
+pywebview>=6
+pyinstaller>=6
+pillow>=10       # draws the icon
