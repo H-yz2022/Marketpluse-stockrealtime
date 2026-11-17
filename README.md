@@ -212,6 +212,11 @@ flow when it is reachable. Every unit is normalised (lots → shares, 10k → un
 are **ratio-adjusted** (total return, not the providers' additive method), and failing sources
 fall back automatically. The full map is in [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md).
 
+## Change log
+
+[CHANGELOG.md](CHANGELOG.md) lists every change, newest first, with what it did. It is rebuilt from the project's
+history with `python scripts/changelog.py`.
+
 ## Command line
 
 ```bash
