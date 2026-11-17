@@ -16,7 +16,7 @@ from stockrt.export import stamp, to_csv_bytes, zip_bytes
 from stockrt.sources.tencent import MKLINE_PERIODS
 from stockrt.symbols import normalize
 from ui import cache
-from ui.i18n import group_name, index_name, t
+from ui.i18n import desktop, group_name, index_name, t
 
 names = {**cache.name_map(), **{c: index_name(n) for c, n in INDEX_NAMES.items()}}
 fmt = lambda c: f"{c[2:]} · {names.get(c, c)}"  # noqa: E731
@@ -83,9 +83,12 @@ def symbol_picker(prefix: str, allow_bulk: bool) -> list[str]:
     return codes
 
 
-tab_daily, tab_intra, tab_snap, tab_cli = st.tabs(
-    [t("日线数据集", "Daily datasets"), t("分时数据集", "Intraday datasets"), t("全市场快照", "Market snapshots"),
-     t("批量与定时（命令行）", "Bulk & scheduled (command line)")])
+tab_names = [t("日线数据集", "Daily datasets"), t("分时数据集", "Intraday datasets"), t("全市场快照", "Market snapshots")]
+if desktop():           # the command-line tab is for a developer's copy of the code
+    tab_daily, tab_intra, tab_snap = st.tabs(tab_names)
+    tab_cli = None
+else:
+    tab_daily, tab_intra, tab_snap, tab_cli = st.tabs(tab_names + [t("批量与定时（命令行）", "Bulk & scheduled (command line)")])
 
 # ---------------------------------------------------------------------------------------------- daily
 with tab_daily:
@@ -269,34 +272,35 @@ with tab_snap:
                                file_name=Path(pick).name, mime="text/csv", on_click="ignore", icon=":material/download:")
 
 # ---------------------------------------------------------------------------------------------- CLI
-with tab_cli:
-    st.markdown(t("""
-超大量下载，或在你睡觉时于北京时间 14:00 抓取数据，请使用 `scripts/` 中的脚本（它们与本程序共用数据层和缓存）。
+if tab_cli is not None:
+    with tab_cli:
+        st.markdown(t("""
+    超大量下载，或在你睡觉时于北京时间 14:00 抓取数据，请使用 `scripts/` 中的脚本（它们与本程序共用数据层和缓存）。
 
-**一段日期范围的日线数据**（自选股、主题组、代码或全市场）：
-""", """
-For very large downloads, or to capture data at 14:00 Beijing time while you're asleep in New York,
-use the scripts in `scripts/` (they share this app's data layer and cache).
+    **一段日期范围的日线数据**（自选股、主题组、代码或全市场）：
+    """, """
+    For very large downloads, or to capture data at 14:00 Beijing time while you're asleep in New York,
+    use the scripts in `scripts/` (they share this app's data layer and cache).
 
-**Daily data for a date range** (watchlist, a group, codes, or the whole market):
-"""))
-    st.code("python scripts/download_daily.py --codes 600519 000858 0700.HK --start 2024-01-01\n"
-            "python scripts/download_daily.py --watchlist --start 2025-01-01 --zip\n"
-            "python scripts/download_daily.py --all-cn --start 2026-01-01 --out data/exports", language="bash")
-    st.markdown(t("**时点抓取**（全市场 + 自选股分钟K线）——现在运行一次：",
-                  "**Point-in-time capture** (whole market + watchlist minute bars) - run it once now:"))
-    st.code("python scripts/capture_snapshot.py", language="bash")
-    st.markdown(t("**用 Windows 任务计划在工作日北京时间 14:00、14:30 和 15:00 收盘时运行。** 首页随后会使用这些时刻的真实数据并立即打开。"
-                  "在纽约，夏令时（EDT）为 02:00、02:30 和 03:00，冬令时（EST）为 01:00、01:30 和 02:00；下面的命令按 EDT。"
-                  "收盘抓取晚 2 分钟运行，以确保收盘集合竞价已出价。节假日会自动跳过。",
-                  "**Schedule it for 14:00, 14:30 and the 15:00 close (Beijing) on weekdays** with Windows Task "
-                  "Scheduler. The front page then uses the real values at those minutes and opens instantly. In "
-                  "New York that is 02:00, 02:30 and 03:00 during daylight saving (EDT), or 01:00, 01:30 and 02:00 "
-                  "in winter (EST); these commands use EDT. The close capture runs 2 minutes late so the "
-                  "closing-auction prints are in. Holidays are skipped automatically."))
-    script = Path(__file__).resolve().parent.parent / "scripts" / "capture_snapshot.py"
-    for name, at in (("1400", "02:00"), ("1430", "02:30"), ("1500", "03:02")):
-        st.code(f'schtasks /Create /TN "StockRT {name} capture" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST {at} '
-                f'/TR "\\"{sys.executable}\\" \\"{script}\\" --label {name}"', language="bash")
-    st.caption(t("文件保存在 data/snapshots/<日期>/，并显示在“已保存的抓取”中。",
-                 "Files land in data/snapshots/<date>/ and appear under Saved captures."))
+    **Daily data for a date range** (watchlist, a group, codes, or the whole market):
+    """))
+        st.code("python scripts/download_daily.py --codes 600519 000858 0700.HK --start 2024-01-01\n"
+                "python scripts/download_daily.py --watchlist --start 2025-01-01 --zip\n"
+                "python scripts/download_daily.py --all-cn --start 2026-01-01 --out data/exports", language="bash")
+        st.markdown(t("**时点抓取**（全市场 + 自选股分钟K线）——现在运行一次：",
+                      "**Point-in-time capture** (whole market + watchlist minute bars) - run it once now:"))
+        st.code("python scripts/capture_snapshot.py", language="bash")
+        st.markdown(t("**用 Windows 任务计划在工作日北京时间 14:00、14:30 和 15:00 收盘时运行。** 首页随后会使用这些时刻的真实数据并立即打开。"
+                      "在纽约，夏令时（EDT）为 02:00、02:30 和 03:00，冬令时（EST）为 01:00、01:30 和 02:00；下面的命令按 EDT。"
+                      "收盘抓取晚 2 分钟运行，以确保收盘集合竞价已出价。节假日会自动跳过。",
+                      "**Schedule it for 14:00, 14:30 and the 15:00 close (Beijing) on weekdays** with Windows Task "
+                      "Scheduler. The front page then uses the real values at those minutes and opens instantly. In "
+                      "New York that is 02:00, 02:30 and 03:00 during daylight saving (EDT), or 01:00, 01:30 and 02:00 "
+                      "in winter (EST); these commands use EDT. The close capture runs 2 minutes late so the "
+                      "closing-auction prints are in. Holidays are skipped automatically."))
+        script = Path(__file__).resolve().parent.parent / "scripts" / "capture_snapshot.py"
+        for name, at in (("1400", "02:00"), ("1430", "02:30"), ("1500", "03:02")):
+            st.code(f'schtasks /Create /TN "StockRT {name} capture" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST {at} '
+                    f'/TR "\\"{sys.executable}\\" \\"{script}\\" --label {name}"', language="bash")
+        st.caption(t("文件保存在 data/snapshots/<日期>/，并显示在“已保存的抓取”中。",
+                     "Files land in data/snapshots/<date>/ and appear under Saved captures."))

@@ -178,7 +178,8 @@ def download(force: bool = False) -> str | None:
     t.raise_for_status()
     folder = re.sub(r"[^0-9A-Za-z]", "", stamp)
     path = _safe_extract(t.content, SYNC_DIR / folder)
-    old = _state.get("dir")
+    # The desktop app starts on its own results folder: what it computed there is carried over too.
+    old = _state.get("dir") or (archive.RESULTS_DIR if os.environ.get("STOCKRT_RESULTS_DIR") else None)
     if old and Path(old).exists() and Path(old) != path:
         for f in Path(old).rglob("*"):           # results this server computed since the last publication
             target = path / f.relative_to(old)
@@ -188,8 +189,6 @@ def download(force: bool = False) -> str | None:
     _merge_bundled(path)
     tmp = _pointer().with_suffix(".tmp")
     tmp.write_text(json.dumps({"dir": str(path), "stamp": stamp, "at": time.time()}), encoding="utf-8")
-    import os
-
     os.replace(tmp, _pointer())
     for d in SYNC_DIR.iterdir():                  # older folders
         if d.is_dir() and d != path.parent:

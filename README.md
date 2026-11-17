@@ -74,19 +74,28 @@ memory, and it sleeps only after **12 hours** without visitors (a visitor wakes 
 3. Deploy. No secrets are needed: live data, the results branch and 24 parallel requests are the defaults. The
    site updates by itself after every push. Its log is under **Manage app** (lines starting `[job]`).
 
-**Windows desktop app.** `ChinaHKMarkets.exe` (about 10 MB) opens the site in its own window - half the screen,
-centred - with an icon, the taskbar and the Start menu like any program, and no browser tabs. The front page links to
-it (**下载 Windows 桌面版**); only the newest version is kept, on the repository's
-[desktop release](https://github.com/H-yz2022/Marketpluse-stockrealtime/releases/tag/desktop), which GitHub rebuilds
-whenever `desktop/` changes. The app **updates itself**: at each start it compares its build with the release's
-`version.json` and, when a newer one exists, downloads it, checks its SHA-256, swaps it in and restarts (any failure
-keeps the current version). It shows the site without the hosting service's buttons (Fork, GitHub, the Streamlit
-badge) and without website-only parts (the download link, the sample-data switch); if the site is asleep, Streamlit's
-wake-up page shows first and the app switches over once it answers. It remembers the language chosen on the site,
-caps its own browser cache at 32 MB, and without a connection it says so and offers to retry. It uses Windows'
-built-in Edge engine, so nothing else is installed. The file isn't signed, so the first time Windows may say it
-"protected your PC": click *More info → Run anyway*. To build it yourself: `bash desktop/build.sh` (Python
-3.10-3.12).
+**Windows desktop app - runs on its own, without the website.** People download `ChinaHKMarkets.exe` (the
+launcher, about 11 MB; the front page links to it as **下载 Windows 桌面版**). At its first start it downloads the
+program itself (`ChinaHKMarketsCore.zip`, about 85 MB, once) into `%LOCALAPPDATA%\ChinaHKMarkets` and from then on
+runs it **on the user's PC**: a local server only that PC can reach, shown in the app's own window (half the
+screen, centred, no browser tabs). Market data comes straight from Tencent, Sina and East Money and the screens are
+computed there, so the hosted site sleeping or being suspended doesn't affect the app. What to know:
+
+- **While the app is open** its clock computes the day's results at their times; opened later, it catches up. When
+  GitHub is reachable it also picks up the daily job's published results (past sessions, the Strategy lab's live
+  record), so days when the PC was off aren't missing. Without GitHub those days stay empty.
+- **Updates.** Both parts compare themselves with the release's `version.json` at each start. The launcher swaps
+  itself and restarts; a newer program is downloaded in the background and the app offers to reload (declined, it
+  is used at the next start). Every download is checked against its SHA-256; any failure keeps the current version.
+  The program's id is a hash of what goes into it, so a README change doesn't cost users a download.
+- **Housekeeping.** One copy runs at a time (starting it again brings the window forward); closing the window stops
+  everything. Results, caches (pruned daily), settings and logs (`launcher.log`, `data\logs\server.log`) are in
+  `%LOCALAPPDATA%\ChinaHKMarkets`, about 260 MB with the program. To uninstall, delete the exe and that folder.
+- **Build.** `desktop/build.py` (`core`, `smoke`, `zip`, `launcher`, `version`); GitHub runs it on every push that
+  changes the program and starts the built program (server answers, a page loads, a worker job runs) before
+  publishing. Only the newest version is kept, on the
+  [desktop release](https://github.com/H-yz2022/Marketpluse-stockrealtime/releases/tag/desktop).
+- The files aren't signed, so the first time Windows may say it "protected your PC": *More info → Run anyway*.
 
 Render works too (`render.yaml`, New → Blueprint), but its free plan sleeps after 15 idle minutes and shares **750
 hours a month across every free service in the account**: running out suspends the site until the 1st, as happened

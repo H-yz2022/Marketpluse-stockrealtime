@@ -10,6 +10,7 @@ visits (Streamlit Community Cloud after 12 hours, Render after 15 minutes), and 
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time as _time
 from dataclasses import dataclass
@@ -156,6 +157,17 @@ class Scheduler:
         job_runner()._trim_logs()
         if n:
             log.info("pruned %d cache files (%.1f MB)", n, freed / 1e6)
+        if os.environ.get("STOCKRT_DESKTOP") == "1":
+            # On the website the daily GitHub job keeps the results folder to its rolling window; a desktop copy
+            # that can't reach GitHub has to do it for the results it computes itself.
+            from stockrt import accumulation, archive, dipbuy, longterm
+
+            for mkt in ("CN", "HK"):
+                archive.prune_sessions(mkt)
+            archive.prune_volumes("CN")
+            archive.prune_screens()
+            for m in (longterm, accumulation, dipbuy):
+                m.prune()
 
     @property
     def syncing(self) -> bool:

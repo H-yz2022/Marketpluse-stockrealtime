@@ -1,62 +1,71 @@
-"""China & HK Markets - the Windows desktop app.
+"""China & HK Markets - the Windows desktop app's launcher (ChinaHKMarkets.exe, the file people download).
 
-The website in its own window: an app icon, a title, the taskbar and Start menu like any program, and no browser
-tabs or address bar. It shows https://china-hk-markets.streamlit.app/ through Windows' built-in Edge engine
-(WebView2), so it always has the latest version of the site and needs nothing else installed.
+The app does not use the website. This launcher opens the window and runs the program itself on this PC:
 
-- The site loads without the hosting service's own buttons (Fork, GitHub, the Streamlit badge): the app opens the
-  site's inner page in embed mode, and tells the site it is the desktop app (`app=desktop`) so website-only parts
-  such as the "download the app" link are left out. If the site is asleep, Streamlit's wake-up page shows first,
-  then the app switches to the clean view as soon as the site answers.
-- It updates itself: at each start it compares its build with the newest one on GitHub (the "desktop" release) and,
-  if a newer one exists, downloads it, checks its SHA-256, swaps it in and restarts. Any failure keeps the current
-  version running.
-- The window opens at half the screen's width, centred, on a "connecting" page; it remembers the language chosen on
-  the site; download buttons (CSV) save to Downloads; outside links open in the browser; without a connection it says
-  so and offers to try again. The Edge cache is capped at 32 MB.
+- The program (desktop/core.py with the whole site inside, about 85 MB to download) is fetched once from the
+  repository's "desktop" release into %LOCALAPPDATA%\\ChinaHKMarkets\\core and started as a local server that only
+  this PC can reach. Market data comes straight from Tencent, Sina and East Money; results are computed here.
+- Both parts keep themselves up to date from the release's version.json: the launcher swaps itself at start; a newer
+  program is downloaded in the background while the current one runs, then the app offers to reload. Every
+  download is checked against its SHA-256, and any failure keeps the current version running.
+- One window per PC (starting it again brings the open window forward), half the screen's width, centred. It
+  remembers the language chosen in the app; download buttons (CSV) save to Downloads; outside links open in the
+  browser. Closing the window stops the program.
 
-    python desktop/app.py                     # run from source (never updates itself)
-    bash desktop/build.sh                     # build dist/ChinaHKMarkets.exe (GitHub builds it on each push too)
+    python desktop/app.py                     # run from source (needs CHINA_HK_CORE)
+    python desktop/build.py launcher          # build dist/ChinaHKMarkets.exe
 
-Set CHINA_HK_URL to point it at another address (for example a local copy: http://localhost:8501/).
+For testing: CHINA_HK_CORE = path of a ChinaHKMarketsCore.exe to use as it is (no download, no update);
+CHINA_HK_RELEASE = another release address (a folder works as file:///C:/...).
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import lzma  # noqa: F401 - the program's zip is LZMA-compressed: make sure the packaged launcher can open it
 import os
+import shutil
+import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 from pathlib import Path
 
 import webview
 
 try:
-    from build_info import BUILD  # written by the GitHub build; absent in a local build
+    from build_info import BUILD  # written by the build; absent when run from source
 except ImportError:
     BUILD = "dev"
 
-BASE = os.environ.get("CHINA_HK_URL", "https://china-hk-markets.streamlit.app/").rstrip("/") + "/"
-HOSTED = BASE.endswith(".streamlit.app/")
-INNER = BASE + "~/+/" if HOSTED else BASE          # the app itself, without the hosting service's frame
-RELEASE = "https://github.com/H-yz2022/Marketpluse-stockrealtime/releases/download/desktop/"
+RELEASE = os.environ.get("CHINA_HK_RELEASE",
+                         "https://github.com/H-yz2022/Marketpluse-stockrealtime/releases/download/desktop/")
 TITLE = "China & HK Markets · 尾盘选股"
+HOME = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "ChinaHKMarkets"
+CORE_DIR, DATA_DIR, SETTINGS = HOME / "core", HOME / "data", HOME / "settings.json"
+CORE_EXE = Path("ChinaHKMarketsCore") / "ChinaHKMarketsCore.exe"
 os.environ.setdefault("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", f"--disk-cache-size={32 * 1024 * 1024}")
 
 STYLE = """<style>
 body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#fcfcfb;color:#0b0b0b;display:flex;
 align-items:center;justify-content:center;height:100vh;margin:0}
-.card{max-width:520px;text-align:center;padding:32px}
+.card{max-width:540px;text-align:center;padding:32px}
 h1{font-size:22px;margin:0 0 12px} p{color:#555;line-height:1.6;margin:0 0 20px}
 button{font-size:15px;padding:10px 22px;border:0;border-radius:6px;background:#2a78d6;color:#fff;cursor:pointer}
 #msg{margin-top:14px;color:#888;font-size:13px} small{color:#999}
-@media (prefers-color-scheme: dark){body{background:#1a1a19;color:#fff}p{color:#bbb}}
+.bar{height:8px;background:#e6e5df;border-radius:4px;overflow:hidden;margin:0 0 10px}
+#fill{height:100%;width:0;background:#2a78d6;transition:width .3s}
+pre{text-align:left;font-size:11px;color:#888;white-space:pre-wrap;max-height:180px;overflow:auto}
+@media (prefers-color-scheme: dark){body{background:#1a1a19;color:#fff}p{color:#bbb}.bar{background:#333}}
 </style>"""
+RETRY = """<button onclick="document.getElementById('msg').textContent='正在重试… Retrying…';pywebview.api.retry()">
+重试 · Try again</button><div id="msg"></div>"""
 
 
 def page(title: str, body: str, extra: str = "") -> str:
@@ -64,149 +73,353 @@ def page(title: str, body: str, extra: str = "") -> str:
             f"<h1>{title}</h1><p>{body}</p>{extra}<small>{BUILD[:7]}</small></div></body></html>")
 
 
-LOADING = page("正在连接… · Connecting…", "如果网站正在休眠，打开需要约一分钟。<br>If the site has been asleep, it "
-               "takes about a minute to wake.")
-UPDATING = page("正在更新… · Updating…", "已有新版本，正在下载并重新启动。<br>A newer version is available: "
-                "downloading it and restarting.")
-OFFLINE = page("无法连接 · Can't reach the site", f"请检查网络连接后重试。<br>Check the internet connection and try "
-               f"again.<br><small>{BASE}</small>", """<button onclick="document.getElementById('msg').textContent=
-'正在连接… Connecting…';pywebview.api.retry().then(ok=>{if(!ok)document.getElementById('msg').textContent=
-'仍然无法连接 · Still offline'})">重试 · Try again</button><div id="msg"></div>""")
+STARTING = page("正在启动… · Starting…", "首次启动可能需要一分钟。<br>The first start can take a minute.")
+UPDATING = page("正在更新… · Updating…", "正在下载新版本并重新启动。<br>Downloading the new version and restarting.")
+DOWNLOADING = page("正在下载程序 · Downloading the program",
+                   "只需下载一次，之后直接启动。<br>This happens once; after that the app starts straight away.",
+                   '<div class="bar"><div id="fill"></div></div><div id="msg">0%</div>'
+                   "<script>function setProgress(p,t){document.getElementById('fill').style.width=p+'%';"
+                   "document.getElementById('msg').textContent=t}</script>")
+OFFLINE = page("无法下载程序 · Can't download the program",
+               "首次启动需要联网下载程序（约 85 MB）。请检查网络后重试。<br>The first start needs the internet to "
+               "download the program (about 85 MB). Check the connection and try again.", RETRY)
 
 
-def fetch(url: str, timeout: float = 15) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "ChinaHKMarkets-desktop"})
+def failed(log_tail: str) -> str:
+    safe = log_tail.replace("&", "&amp;").replace("<", "&lt;")
+    return page("启动失败 · The program didn't start",
+                f"日志在 · The log is in<br><small>{DATA_DIR / 'logs' / 'server.log'}</small>",
+                f"<pre>{safe}</pre>{RETRY}")
+
+
+# ------------------------------------------------------------------ small helpers
+
+def fetch(name: str, timeout: float = 15) -> bytes:
+    req = urllib.request.Request(RELEASE + name, headers={"User-Agent": "ChinaHKMarkets-desktop"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read()
 
 
-def reachable(url: str) -> bool:
+def remote_info() -> dict | None:
+    """The release's version.json, or None when it can't be read (offline, GitHub unreachable)."""
     try:
-        fetch(url)
-        return True
-    except urllib.error.HTTPError:
-        return True             # the server answered (Streamlit's cookie redirect loops without a cookie jar)
-    except OSError:
-        return False
-
-
-def awake() -> bool:
-    """The site's own health check answers "ok" only while it runs (not while asleep or waking)."""
-    try:
-        return fetch(INNER + "_stcore/health", timeout=10).strip() == b"ok"
-    except OSError:
-        return False
-
-
-# ------------------------------------------------------------------ settings (the language chosen on the site)
-
-def storage_dir() -> Path:
-    """Where the window keeps its cookies and the app its settings."""
-    base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
-    d = base / "ChinaHKMarkets"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
-SETTINGS = storage_dir() / "settings.json"
-
-
-def load_settings() -> dict:
-    try:
-        return json.loads(SETTINGS.read_text(encoding="utf-8"))
+        return json.loads(fetch("version.json", timeout=10))
     except (OSError, ValueError):
-        return {}
+        return None
 
 
-def save_settings(s: dict) -> None:
+def log(text: str) -> None:
+    """The launcher's own log (%LOCALAPPDATA%\\ChinaHKMarkets\\launcher.log): a windowed program has no console."""
     try:
-        SETTINGS.write_text(json.dumps(s), encoding="utf-8")
+        HOME.mkdir(parents=True, exist_ok=True)
+        path = HOME / "launcher.log"
+        if path.exists() and path.stat().st_size > 500_000:
+            path.unlink()
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} [{BUILD[:7]}] {text}\n")
     except OSError:
         pass
 
 
-def app_url(lang: str) -> str:
-    return INNER + "?" + urllib.parse.urlencode({"embed": "true", "app": "desktop", "lang": lang})
+def load_json(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
 
 
-def follow_language(window: webview.Window, settings: dict) -> None:
-    """Keep the language the site shows (its `lang` address parameter) for the next start."""
-    while True:
-        time.sleep(5)
-        try:
-            url = window.get_current_url() or ""
-        except Exception:  # noqa: BLE001 - the window is closing
-            return
-        lang = urllib.parse.parse_qs(urllib.parse.urlparse(url).query).get("lang", [None])[0]
-        if lang in ("zh", "en") and lang != settings.get("lang"):
-            settings["lang"] = lang
-            save_settings(settings)
+def save_json(path: Path, obj: dict) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(obj), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        pass
 
 
-# ------------------------------------------------------------------ self-update
+def free_port(preferred: int = 8765) -> int:
+    """The same port every time when it is free (the window's saved state belongs to the address), else any."""
+    for port in (preferred, 0):
+        with socket.socket() as s:
+            try:
+                s.bind(("127.0.0.1", port))
+                return s.getsockname()[1]
+            except OSError:
+                continue
+    return preferred
 
-def update(window: webview.Window) -> bool:
-    """If GitHub has a newer build: download it, check it, swap it in and restart. True when restarting."""
+
+def already_running() -> bool:
+    """One app per PC: a second start brings the open window forward instead."""
+    if os.name != "nt":
+        return False
+    import ctypes
+
+    ctypes.windll.kernel32.CreateMutexW(None, False, "Local\\ChinaHKMarketsDesktop")
+    if ctypes.windll.kernel32.GetLastError() != 183:              # ERROR_ALREADY_EXISTS
+        return False
+    hwnd = ctypes.windll.user32.FindWindowW(None, TITLE)
+    if hwnd:
+        ctypes.windll.user32.ShowWindow(hwnd, 9)                   # SW_RESTORE
+        ctypes.windll.user32.SetForegroundWindow(hwnd)
+    return True
+
+
+# ------------------------------------------------------------------ the launcher's own update
+
+def update_launcher(window: webview.Window, info: dict | None) -> bool:
+    """If the release has a newer launcher: download it, check it, swap it in and restart. True when restarting."""
     exe = Path(sys.executable)
     for old in exe.parent.glob(exe.stem + ".old*.exe"):           # left by the last update
         try:
             old.unlink()
         except OSError:
             pass
-    if not getattr(sys, "frozen", False) or BUILD == "dev":
+    if not getattr(sys, "frozen", False) or BUILD == "dev" or not info:
         return False
     try:
-        info = json.loads(fetch(RELEASE + "version.json", timeout=10))
         if not info.get("build") or info["build"] == BUILD:
             return False
         window.load_html(UPDATING)
-        data = fetch(RELEASE + "ChinaHKMarkets.exe", timeout=120)
+        data = fetch("ChinaHKMarkets.exe", timeout=120)
         if hashlib.sha256(data).hexdigest() != info.get("sha256"):
             return False                                          # incomplete or altered download: keep this one
         new = exe.with_name(exe.stem + ".new.exe")
         new.write_bytes(data)
-        old = exe.with_name(f"{exe.stem}.old{int(time.time())}.exe")
-        exe.rename(old)                                           # Windows lets a running program be renamed
+        exe.rename(exe.with_name(f"{exe.stem}.old{int(time.time())}.exe"))   # a running program can be renamed
         new.rename(exe)
-        subprocess.Popen([str(exe)], creationflags=getattr(subprocess, "DETACHED_PROCESS", 0), close_fds=True)
+        env = dict(os.environ, PYINSTALLER_RESET_ENVIRONMENT="1")
+        subprocess.Popen([str(exe)], env=env, creationflags=getattr(subprocess, "DETACHED_PROCESS", 0), close_fds=True)
         window.destroy()
         return True
     except Exception:  # noqa: BLE001 - never let an update stop the app from opening
         return False
 
 
-# ------------------------------------------------------------------ the window
+# ------------------------------------------------------------------ the program (core)
 
-class Api:
-    """Called from the offline page. The window is kept in an underscore attribute: pywebview exposes the api
-    object's public attributes to the page by walking them, and walking a Window from its own thread froze the app."""
+def installed_core() -> tuple[str, Path] | None:
+    """(build, exe) of the program to run: CHINA_HK_CORE when set, else the installed one."""
+    override = os.environ.get("CHINA_HK_CORE")
+    if override:
+        return ("override", Path(override)) if Path(override).exists() else None
+    build = load_json(CORE_DIR / "current.json").get("build")
+    exe = CORE_DIR / build / CORE_EXE if build else None
+    return (build, exe) if exe is not None and exe.exists() else None
 
-    def __init__(self, url: str) -> None:
-        self._window: webview.Window | None = None
-        self._url = url
 
-    def retry(self) -> bool:
-        if reachable(BASE) and self._window is not None:
-            self._window.load_url(self._url if awake() else BASE)
-            return True
+def download_core(core: dict, progress=None) -> bool:
+    """Download the program's zip, check its SHA-256, unpack it next to the others and make it the current one."""
+    build = core["build"]
+    target, part = CORE_DIR / build, CORE_DIR / f"{build}.part"
+    tmp = HOME / "update" / f"core-{build}.zip"
+    try:
+        if not (target / CORE_EXE).exists():
+            tmp.parent.mkdir(parents=True, exist_ok=True)
+            h, done, total = hashlib.sha256(), 0, core.get("size") or 1
+            req = urllib.request.Request(RELEASE + core.get("file", "ChinaHKMarketsCore.zip"),
+                                         headers={"User-Agent": "ChinaHKMarkets-desktop"})
+            with urllib.request.urlopen(req, timeout=30) as r, open(tmp, "wb") as f:
+                while block := r.read(1 << 18):
+                    f.write(block)
+                    h.update(block)
+                    done += len(block)
+                    if progress:
+                        progress(min(done / total, 1.0) * 0.9, f"{done / 1e6:.0f} / {total / 1e6:.0f} MB")
+            if h.hexdigest() != core.get("sha256"):
+                return False                                      # incomplete or altered download
+            if progress:
+                progress(0.92, "正在安装… · Installing…")
+            shutil.rmtree(part, ignore_errors=True)
+            with zipfile.ZipFile(tmp) as z:
+                z.extractall(part)
+            shutil.rmtree(target, ignore_errors=True)
+            part.rename(target)
+        save_json(CORE_DIR / "current.json", {"build": build})
+        return (target / CORE_EXE).exists()
+    except (OSError, zipfile.BadZipFile, ValueError):
+        return False
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def remove_old_cores(keep: str) -> None:
+    if not CORE_DIR.exists():
+        return
+    for d in CORE_DIR.iterdir():
+        if d.is_dir() and d.name != keep:
+            shutil.rmtree(d, ignore_errors=True)
+
+
+class Server:
+    """The program's local server process (only this PC can reach it)."""
+
+    def __init__(self) -> None:
+        self.proc: subprocess.Popen | None = None
+        self.port = 0
+
+    def start(self, exe: Path) -> None:
+        self.stop()
+        self.port = free_port()
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        env = dict(os.environ, STOCKRT_DATA_DIR=str(DATA_DIR), STOCKRT_RESULTS_DIR=str(DATA_DIR / "results"),
+                   STOCKRT_DESKTOP="1", STOCKRT_DATA_MODE="live", PYTHONIOENCODING="utf-8",
+                   PYINSTALLER_RESET_ENVIRONMENT="1")              # the program is its own packaged application
+        self.proc = subprocess.Popen([str(exe), "--server", str(self.port)], env=env, cwd=str(exe.parent),
+                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+    def ready(self) -> bool:
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/_stcore/health", timeout=3) as r:
+                return r.read().strip() == b"ok"
+        except OSError:
+            return False
+
+    def wait(self, seconds: float = 240) -> bool:
+        t0 = time.time()
+        while time.time() - t0 < seconds:
+            if self.proc is None or self.proc.poll() is not None:
+                return False
+            if self.ready():
+                return True
+            time.sleep(0.5)
         return False
 
+    def stop(self) -> None:
+        if self.proc is not None and self.proc.poll() is None:
+            self.proc.terminate()                                  # its workers stop with it (core.exit_with_parent)
+            try:
+                self.proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+        self.proc = None
 
-def connect(window: webview.Window, url: str, settings: dict) -> None:
-    """Runs in the background once the window is up: update if needed, then open the site (waking it first)."""
-    if update(window):
-        return
-    if not reachable(BASE):
-        window.load_html(OFFLINE)
-        return
-    if not awake():
-        window.load_url(BASE)                                     # Streamlit's own wake-up page
-        for _ in range(120):                                      # up to 10 minutes
-            time.sleep(5)
-            if awake():
-                break
-    window.load_url(url)
-    follow_language(window, settings)
+    def url(self, lang: str) -> str:
+        return f"http://127.0.0.1:{self.port}/?" + urllib.parse.urlencode(
+            {"embed": "true", "app": "desktop", "lang": lang})
+
+
+# ------------------------------------------------------------------ the window
+
+class App:
+    def __init__(self) -> None:
+        self.window: webview.Window | None = None
+        self.server = Server()
+        self.settings = load_json(SETTINGS)
+        self.core_build: str | None = None
+        self.lock = threading.Lock()
+        self.closed = threading.Event()         # the window has been closed: every background loop stops
+
+    def lang(self) -> str:
+        return self.settings.get("lang", "zh")
+
+    def log_tail(self) -> str:
+        try:
+            return (DATA_DIR / "logs" / "server.log").read_text(encoding="utf-8", errors="replace")[-1500:]
+        except OSError:
+            return ""
+
+    def run(self) -> None:
+        """In the background once the window is up: update, make sure the program is there, start it, show it."""
+        if not self.lock.acquire(blocking=False):
+            return
+        try:
+            w = self.window
+            info = remote_info()
+            if update_launcher(w, info):
+                return
+            core = installed_core()
+            if core is None:
+                if not info or not info.get("core"):
+                    w.load_html(OFFLINE)
+                    return
+                w.load_html(DOWNLOADING)
+                shown = [0.0]
+
+                def progress(f: float, text: str) -> None:
+                    if time.time() - shown[0] < 0.3 and f < 0.9:   # the page may still be loading: never fail on it
+                        return
+                    shown[0] = time.time()
+                    try:
+                        w.evaluate_js(f"window.setProgress && setProgress({f * 100:.0f}, "
+                                      f"{json.dumps(f'{f * 100:.0f}% · {text}')})")
+                    except Exception:  # noqa: BLE001 - only the display
+                        pass
+
+                log(f"downloading the program {info['core'].get('build')}")
+                if not download_core(info["core"], progress):
+                    log("download failed")
+                    w.load_html(OFFLINE)
+                    return
+                core = installed_core()
+                w.load_html(STARTING)
+            self.core_build, exe = core
+            self.server.start(exe)
+            if not self.server.wait():
+                log(f"the program {self.core_build} didn't start")
+                w.load_html(failed(self.log_tail()))
+                return
+            log(f"program {self.core_build} running on port {self.server.port}")
+            w.load_url(self.server.url(self.lang()))
+            if self.core_build != "override":
+                remove_old_cores(keep=self.core_build)
+                threading.Thread(target=self.update_core, args=(info,), daemon=True).start()
+        except Exception as e:  # noqa: BLE001 - show it rather than leave a blank window
+            import traceback
+
+            log("error: " + traceback.format_exc()[-1500:])
+            if not self.closed.is_set():
+                self.window.load_html(page("出错了 · Something went wrong", str(e)[:300], RETRY))
+        finally:
+            self.lock.release()
+
+    def update_core(self, info: dict | None) -> None:
+        """A newer program: download it quietly while this one runs, then offer to reload. Declined or closed
+        first, it is simply the one that starts next time."""
+        core = (info or {}).get("core")
+        if not core or core.get("build") == self.core_build or not download_core(core):
+            return
+        try:
+            now = self.window.create_confirmation_dialog(
+                TITLE, "新版本已准备好，现在重新载入吗？\n\nA new version is ready. Reload now?")
+        except Exception:  # noqa: BLE001 - the window is closing
+            return
+        if now and not self.closed.is_set():
+            log(f"reloading with the program {core.get('build')}")
+            self.window.load_html(STARTING)
+            self.server.stop()
+            self.run()
+
+    def follow_language(self) -> None:
+        """Keep the language the app shows (its `lang` address parameter) for the next start."""
+        while not self.closed.wait(5):
+            try:
+                url = self.window.get_current_url() or ""
+            except Exception:  # noqa: BLE001 - the window is closing
+                return
+            lang = urllib.parse.parse_qs(urllib.parse.urlparse(url).query).get("lang", [None])[0]
+            if lang in ("zh", "en") and lang != self.settings.get("lang"):
+                self.settings["lang"] = lang
+                save_json(SETTINGS, self.settings)
+
+    def started(self) -> None:
+        threading.Thread(target=self.follow_language, daemon=True).start()
+        self.run()
+
+
+class Api:
+    """Called from the launcher's own pages. The app is kept in an underscore attribute: pywebview exposes the api
+    object's public attributes to the page by walking them, and walking a Window from its own thread froze the app."""
+
+    def __init__(self, app: App) -> None:
+        self._app = app
+
+    def retry(self) -> None:
+        threading.Thread(target=self._app.run, daemon=True).start()
 
 
 def half_screen() -> dict:
@@ -220,16 +433,23 @@ def half_screen() -> dict:
 
 
 def main() -> int:
+    if already_running():
+        return 0
+    HOME.mkdir(parents=True, exist_ok=True)
     webview.settings["ALLOW_DOWNLOADS"] = True
     webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True
-    settings = load_settings()
-    url = app_url(settings.get("lang", "zh"))
-    api = Api(url)
-    window = webview.create_window(TITLE, html=LOADING, js_api=api, min_size=(640, 500), text_select=True,
-                                   **half_screen())
-    api._window = window
-    webview.start(connect, (window, url, settings), private_mode=False, storage_path=str(storage_dir()))
-    return 0
+    app = App()
+    app.window = webview.create_window(TITLE, html=STARTING, js_api=Api(app), min_size=(640, 500), text_select=True,
+                                       **half_screen())
+    app.window.events.closed += app.closed.set
+    log("started")
+    try:
+        webview.start(app.started, private_mode=False, storage_path=str(HOME))
+    finally:
+        app.closed.set()
+        app.server.stop()
+        log("closed")
+    os._exit(0)     # nothing may keep the process alive once the window is gone (an earlier version lingered)
 
 
 if __name__ == "__main__":

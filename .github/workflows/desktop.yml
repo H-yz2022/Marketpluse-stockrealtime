@@ -1,12 +1,24 @@
 name: Desktop app
 
-# Builds the Windows app (dist/ChinaHKMarkets.exe) and puts it on the repository's "desktop" release, with
-# version.json (build id + SHA-256). Installed copies read version.json at start and update themselves to it.
-# Runs when the desktop code changes, or by hand (Actions -> Run workflow). Only the newest version is kept.
+# Builds the Windows desktop app and puts it on the repository's "desktop" release:
+#   ChinaHKMarkets.exe        the launcher - what people download (the window; keeps itself up to date)
+#   ChinaHKMarketsCore.zip    the program itself (the whole site, run on the user's PC - no website involved)
+#   version.json              build ids and SHA-256 of both: installed copies compare themselves with it
+# Only the newest version is kept. Runs when the program or the launcher changes, or by hand
+# (Actions -> Desktop app -> Run workflow). The program is started and checked before anything is published.
 on:
   push:
     branches: [main]
-    paths: ["desktop/**", ".github/workflows/desktop.yml"]
+    paths:
+      - "desktop/**"
+      - "stockrt/**"
+      - "ui/**"
+      - "app_pages/**"
+      - "streamlit_app.py"
+      - ".streamlit/**"
+      - "results/**"
+      - "research/lab_pools/**"
+      - ".github/workflows/desktop.yml"
   workflow_dispatch: {}
 
 permissions:
@@ -19,36 +31,42 @@ concurrency:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+
+      - name: Python for the program (the versions it was tested with)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Build the program
+        run: |
+          pip install -r desktop/requirements-core.txt "pyinstaller>=6.11"
+          python desktop/build.py core
+      - name: Start it and check it (server answers, a page loads, a worker job runs)
+        run: python desktop/build.py smoke
+      - name: Zip it
+        run: python desktop/build.py zip
+
+      - name: Python for the launcher
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install the build tools
-        run: pip install -r desktop/requirements.txt
-      - name: Build
-        shell: bash
+      - name: Build the launcher
         run: |
-          echo "BUILD = \"${GITHUB_SHA::12}\"" > desktop/build_info.py
-          python desktop/make_icon.py
-          pyinstaller --noconfirm --onefile --windowed --name ChinaHKMarkets --icon desktop/icon.ico \
-            --paths desktop --hidden-import build_info desktop/app.py
-          python - <<'EOF'
-          import hashlib, json, os, time
-          data = open("dist/ChinaHKMarkets.exe", "rb").read()
-          json.dump({"build": os.environ["GITHUB_SHA"][:12], "sha256": hashlib.sha256(data).hexdigest(),
-                     "size": len(data), "built": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime())},
-                    open("dist/version.json", "w"))
-          EOF
-          cat dist/version.json
-      - name: Publish to the "desktop" release (the exe first, then the version that points to it)
+          pip install -r desktop/requirements.txt
+          python desktop/build.py launcher
+      - name: Version file
+        run: python desktop/build.py version
+
+      - name: Publish to the "desktop" release (the files first, then the version that points to them)
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release view desktop >/dev/null 2>&1 || gh release create desktop --title "Desktop app (Windows)" \
-            --notes "ChinaHKMarkets.exe opens https://china-hk-markets.streamlit.app/ in its own window and updates itself. Rebuilt automatically when the desktop code changes."
+            --notes "Download ChinaHKMarkets.exe and run it. It fetches the program (ChinaHKMarketsCore.zip) once, runs it on your PC and keeps both up to date. Rebuilt automatically when the program changes."
+          gh release upload desktop dist/ChinaHKMarketsCore.zip --clobber
           gh release upload desktop dist/ChinaHKMarkets.exe --clobber
           gh release upload desktop dist/version.json --clobber
           echo "Download: https://github.com/${GITHUB_REPOSITORY}/releases/download/desktop/ChinaHKMarkets.exe"

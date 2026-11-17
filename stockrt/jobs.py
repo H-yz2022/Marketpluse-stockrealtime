@@ -86,6 +86,16 @@ class Runner:
 
 # --------------------------------------------------------------------------- jobs in a separate process
 
+def worker_command(task: str, args_json: str, progress_file: str) -> list[str]:
+    """How to start one worker: `python -m stockrt.worker ...`, or - inside the packaged desktop program, where
+    there is no `python` - the program's own worker mode (desktop/core.py)."""
+    import sys
+
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "--worker", task, args_json, progress_file]
+    return [sys.executable, "-m", "stockrt.worker", task, args_json, progress_file]
+
+
 class ProcessRunner:
     """Runs heavy jobs one at a time in a separate, lowest-priority Python process.
 
@@ -250,9 +260,13 @@ class ProcessRunner:
         pf.unlink(missing_ok=True)
         worker_log = open(self.dir / "worker.log", "ab")  # noqa: SIM115 - closed when the process ends
         env = dict(os.environ, PYTHONIOENCODING="utf-8")
+        flags = 0
+        if os.name == "nt":                 # lowest priority there too; no console window from the packaged program
+            flags = subprocess.BELOW_NORMAL_PRIORITY_CLASS | (
+                subprocess.CREATE_NO_WINDOW if getattr(sys, "frozen", False) else 0)
         self._proc = subprocess.Popen(
-            [sys.executable, "-m", "stockrt.worker", job.task, json.dumps(job.args, default=str), str(pf)],
-            cwd=str(ROOT), stdout=worker_log, stderr=subprocess.STDOUT, env=env)
+            worker_command(job.task, json.dumps(job.args, default=str), str(pf)),
+            cwd=str(ROOT), stdout=worker_log, stderr=subprocess.STDOUT, env=env, creationflags=flags)
         self._proc._log = worker_log  # type: ignore[attr-defined]
         self._active = key
         job.state, job.started, job.message = "running", time.time(), "Starting the worker"

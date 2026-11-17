@@ -9,6 +9,7 @@ page's "Past sessions" section lists them.
 from __future__ import annotations
 
 import json
+import os
 from datetime import date
 from pathlib import Path
 
@@ -17,7 +18,8 @@ import pandas as pd
 from . import sample
 from .config import ROOT
 
-RESULTS_DIR = ROOT / "results"
+# The desktop app keeps its results in the user's data folder (STOCKRT_RESULTS_DIR), not inside the program.
+RESULTS_DIR = Path(os.environ.get("STOCKRT_RESULTS_DIR") or ROOT / "results")
 
 
 def _base(mkt: str, day: date) -> Path:
