@@ -18,7 +18,7 @@ does the work.
    Money answers again.
 5. 收盘选股 (成交量翻倍，突破压力位，换手率＞3%，站上牛熊线), 长线 (the long-term screen on closing data) and
    主力暗中吸筹 (the morning checkpoints, from each stock's minute money flow); then the history panel - the
-   last 30 sessions of every stock - so tomorrow's live updates download only intraday data.
+   last 130 sessions of every stock - so tomorrow's live updates download only intraday data.
 6. Rolling window: the front page's Past sessions list grows slowly (the newest 5 sessions in full, older ones
    compacted to the ranked list, up to 60 sessions); the other screens keep 5 sessions and 5 volume books (the
    Strategy lab's log is kept whole: it is the test itself, and grows by a few MB a year).

@@ -58,14 +58,25 @@ class Params:
 
 def drop5_rough(snap: pd.DataFrame, day: date) -> pd.Series:
     """The 5-session change for every stock from data already on disk: the history panel (adjusted), else the
-    volume books (unadjusted). Used only to pick the shortlist; exact figures come from fresh bars."""
-    from . import panel
+    volume books (unadjusted). Used only to pick the shortlist; exact figures come from fresh bars. All stocks in
+    one pass over the panel (a per-stock lookup took 16 s for the whole market)."""
+    from . import panel, tradingdays
 
     ref: dict[str, float] = {}
-    for r in snap[["code", "prev_close"]].itertuples(index=False):
-        h = panel.history(r.code, day, r.prev_close, min_rows=5)
-        if h is not None and len(h) >= 5:
-            ref[r.code] = float(h["close"].iloc[-5])
+    df, _ = panel._loaded()
+    if not df.empty:
+        before = df[df["date"] < pd.Timestamp(day)]
+        g = before.groupby("code", sort=False)
+        last = g.tail(1).set_index("code")
+        fifth = g.tail(5).groupby("code", sort=False).head(1).set_index("code")["close"]
+        n = g.size()
+        prev = tradingdays.previous_trading_day("CN", day)
+        quotes = snap.set_index("code")["prev_close"]
+        ok = (n >= 5) & (last["date"].dt.date >= prev if prev else True)
+        # A stock that went ex-dividend since the panel was saved: its previous close no longer matches.
+        agree = (last["close"] / quotes.reindex(last.index) - 1).abs() <= 0.002
+        keep = ok.reindex(fifth.index).fillna(False) & agree.reindex(fifth.index).fillna(False)
+        ref = fifth[keep].astype(float).to_dict()
     books = archive.load_volume_history("CN", before=day, n=5)
     if len(books) == 5:
         oldest = books[-1][1].set_index("code")["close"]
@@ -85,12 +96,16 @@ def shortlist(snap: pd.DataFrame, day: date) -> pd.DataFrame:
 
 # --------------------------------------------------------------------------- enrichment
 
-def trend(code: str, day: date, price: float) -> dict:
-    """The exact 5-session change and the price against MA20 / MA60 / MA120, from adjusted daily bars."""
+def trend(code: str, day: date, price: float, prev_close: float | None = None) -> dict:
+    """The exact 5-session change and the price against MA20 / MA60 / MA120, from adjusted daily bars: the saved
+    130-session history panel when it covers the stock (no download), else downloaded."""
+    from . import panel
     from .sources import tencent
 
-    h = tencent.daily(code, start=day - timedelta(days=200), end=day, fq="qfq")
-    h = h[h["date"] < pd.Timestamp(day)]
+    h = panel.history(code, day, prev_close, min_rows=59)
+    if h is None:
+        h = tencent.daily(code, start=day - timedelta(days=200), end=day, fq="qfq")
+        h = h[h["date"] < pd.Timestamp(day)]
     out = {"code": code}
     c = h["close"].astype(float).tolist()
     if len(c) >= 5:
@@ -121,19 +136,22 @@ def _ttm(rows: pd.DataFrame) -> tuple[float | None, str | None]:
 
 
 def profit_ttm(codes: list[str], day: date) -> pd.DataFrame:
-    """扣非净利润 over the last 12 months for each code (East Money F10 main financial data), cached for the day."""
+    """扣非净利润 over the last 12 months for each code (East Money F10 main financial data).
+
+    Company reports change a few times a year, so answers are kept for the week (not the day), and the requests
+    run six at a time: this was 75 s for 2,000 stocks, one request after another, every day."""
     from .sources.eastmoney import HEADERS
 
-    key = f"profit_{day.isoformat()}"
+    year, week, _ = day.isocalendar()
+    key = f"profit_{year}w{week:02d}"
     cached = storage.load_frame("dipbuy", key)
     have = set(cached["code"]) if cached is not None else set()
     todo = [c for c in codes if c not in have]
-    rows: list[dict] = []
     since = f"{day.year - 2}-01-01"
-    for i in range(0, len(todo), 80):
-        chunk = todo[i:i + 80]
+
+    def chunk_rows(chunk: list[str]) -> list[dict]:
         secu = '","'.join(f"{c[2:]}.{c[:2].upper()}" for c in chunk)
-        page = 1
+        rows, page = [], 1
         while True:
             j = http.get("https://datacenter-web.eastmoney.com/api/data/v1/get", params={
                 "reportName": "RPT_F10_FINANCE_MAINFINADATA", "columns": "SECUCODE,REPORT_DATE,KCFJCXSYJLR",
@@ -142,8 +160,19 @@ def profit_ttm(codes: list[str], day: date) -> pd.DataFrame:
             res = j.get("result") or {}
             rows += res.get("data") or []
             if page >= (res.get("pages") or 0):
-                break
+                return rows
             page += 1
+
+    chunks = [todo[i:i + 80] for i in range(0, len(todo), 80)]
+    rows: list[dict] = []
+    failed = 0
+    for got in http.pmap(chunk_rows, chunks, workers=6):
+        if isinstance(got, list):
+            rows += got
+        else:
+            failed += 1
+    if chunks and failed == len(chunks):
+        raise http.SourceUnavailable("East Money financial reports didn't answer")
     out = []
     if rows:
         f = pd.DataFrame(rows)
@@ -154,7 +183,8 @@ def profit_ttm(codes: list[str], day: date) -> pd.DataFrame:
             v, basis = _ttm(g)
             out.append({"code": code, "profit_ttm": v, "profit_basis": basis})
     fresh = pd.DataFrame(out, columns=["code", "profit_ttm", "profit_basis"])
-    fresh = pd.concat([fresh, pd.DataFrame({"code": [c for c in todo if c not in set(fresh["code"])]})])
+    if not failed:      # a stock with no reports is remembered as unknown; one whose batch failed is asked again
+        fresh = pd.concat([fresh, pd.DataFrame({"code": [c for c in todo if c not in set(fresh["code"])]})])
     allp = fresh if cached is None else pd.concat([cached, fresh], ignore_index=True)
     storage.save_frame("dipbuy", key, allp)
     return allp[allp["code"].isin(codes)]
@@ -173,9 +203,10 @@ def run(day: date, snap: pd.DataFrame, progress: Callable[[float, str], None] | 
     if progress:
         progress(0.05, f"低位吸筹 shortlist: {len(cands)} stocks down {SHORTLIST_DROP:g}%+ over 5 sessions")
     rows = []
-    recs = cands[["code", "price"]].to_dict("records")
+    recs = cands[["code", "price", "prev_close"]].to_dict("records")
     for i in range(0, len(recs), 60):
-        for r in http.pmap(lambda r: trend(r["code"], day, r["price"]), recs[i:i + 60], workers=workers):
+        for r in http.pmap(lambda r: trend(r["code"], day, r["price"], r["prev_close"]), recs[i:i + 60],
+                           workers=workers):
             if isinstance(r, dict):
                 rows.append(r)
         if progress:

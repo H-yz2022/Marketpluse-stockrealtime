@@ -14,7 +14,7 @@ import os
 import threading
 import time as _time
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 
 import streamlit as st
 
@@ -32,9 +32,28 @@ class Task:
     start: time
     deadline: time
     mkt: str = "CN"
+    intraday: bool = False      # a live result computed ahead of visitors: only on time (never caught up later -
+    #                             the after-close tasks cover the day), and not listed in the sidebar
 
 
-TASKS = (
+def _at(hhmm: str, plus: int = 0) -> time:
+    return (datetime.strptime(hhmm, "%H:%M") + timedelta(minutes=plus)).time()
+
+
+def _intraday() -> tuple[Task, ...]:
+    """While the server runs during the session, each live screen is computed at its checkpoint, so it is ready
+    before anyone opens it: 主力暗中吸筹 after each morning checkpoint, 尾盘选股 at 14:00 and 14:30, and 低位吸筹
+    every half hour. Each has 20-25 minutes to finish before it counts as missed."""
+    tasks = [Task(f"acc_{c.replace(':', '')}", f"主力暗中吸筹 {c}", _at(c, 2), _at(c, 22), intraday=True)
+             for c in ("09:45", "10:15", "10:45")]
+    tasks += [Task("tail_1400", "尾盘选股 14:00", _at("14:00", 1), _at("14:00", 25), intraday=True),
+              Task("tail_1430", "尾盘选股 14:30", _at("14:30", 1), _at("14:30", 25), intraday=True)]
+    tasks += [Task(f"dip_{c.replace(':', '')}", f"低位吸筹 {c}", _at(c), _at(c, 20), intraday=True)
+              for c in ("10:00", "10:30", "11:00", "13:30", "14:00", "14:30")]
+    return tuple(tasks)
+
+
+TASKS = _intraday() + (
     Task("accumulation", "主力暗中吸筹", time(11, 16), time(11, 40)),
     Task("cn_close", "尾盘选股 15:00", time(15, 2), time(15, 20)),
     Task("dipbuy", "低位吸筹", time(15, 3), time(15, 30)),
@@ -47,6 +66,17 @@ TASKS = (
 def _done(t: Task, day: date) -> bool:
     from stockrt import accumulation, archive, dipbuy, longterm
 
+    if t.name.startswith("acc_"):
+        return accumulation.load_partial(day, _acc_reached(t)) is not None
+    if t.name.startswith("tail_"):
+        from stockrt import checkpoint, storage
+        from stockrt.screener import ScreenParams
+
+        key = checkpoint._result_key(day, ScreenParams(), _tail_reached(t), checkpoint.SPECS["CN"])
+        return storage.load_json("checkpoints", key) is not None
+    if t.name.startswith("dip_"):
+        res = dipbuy.load(day)
+        return res is not None and (bool(res["final"]) or res["computed"] >= f"{day} {t.start:%H:%M}")
     if t.name == "accumulation":
         return accumulation.load(day) is not None
     if t.name == "dipbuy":
@@ -61,6 +91,17 @@ def _done(t: Task, day: date) -> bool:
     return day in archive.sessions("HK")
 
 
+def _acc_reached(t: Task) -> tuple[str, ...]:
+    from stockrt import accumulation
+
+    last = f"{t.name[4:6]}:{t.name[6:]}"
+    return tuple(c for c in accumulation.CHECKPOINTS if c <= last)
+
+
+def _tail_reached(t: Task) -> tuple[str, ...]:
+    return ("14:00",) if t.name == "tail_1400" else ("14:00", "14:30")
+
+
 def _submit(t: Task, day: date, force: bool):
     from stockrt import accumulation, checkpoint
     from stockrt.screener import ScreenParams
@@ -68,6 +109,22 @@ def _submit(t: Task, day: date, force: bool):
     from ui.screens_view import acc_key, dipbuy_key, longterm_key
 
     r, w = job_runner(), checkpoint.WORKERS
+    # The same job keys as the pages, so a visitor arriving meanwhile shares the run instead of starting another.
+    if t.name.startswith("acc_"):
+        reached = _acc_reached(t)
+        return r.submit(acc_key(day, reached), "accumulation",
+                        {"day": str(day), "reached": list(reached), "workers": w}, force=force)
+    if t.name.startswith("tail_"):
+        reached = _tail_reached(t)
+        return r.submit(frontpage_key("CN", day, reached, ScreenParams()), "frontpage",
+                        {"mkt": "CN", "day": str(day), "params": ScreenParams().to_dict(), "use_cache": True},
+                        force=force)
+    if t.name.startswith("dip_"):
+        from stockrt import dipbuy
+        from stockrt.calendar import now_bj
+
+        return r.submit(dipbuy_key(day, dipbuy.bucket(now_bj())), "dipbuy", {"day": str(day), "workers": w},
+                        force=force)
     if t.name == "accumulation":
         return r.submit(acc_key(day, accumulation.CHECKPOINTS), "accumulation",
                         {"day": str(day), "reached": list(accumulation.CHECKPOINTS), "workers": w}, force=force)
@@ -115,6 +172,8 @@ class Scheduler:
             day = now.date()
             if now.time() < t.start or tradingdays.is_trading_day(t.mkt, day) is False or now.weekday() >= 5:
                 continue
+            if t.intraday and now.time() > t.deadline:
+                continue                # its moment has passed; the after-close result covers it
             key = (t.name, str(day))
             if _done(t, day):
                 continue
@@ -180,7 +239,7 @@ class Scheduler:
         day = now.date()
         out = []
         for t in TASKS:
-            if now.weekday() >= 5 or tradingdays.is_trading_day(t.mkt, day) is False:
+            if t.intraday or now.weekday() >= 5 or tradingdays.is_trading_day(t.mkt, day) is False:
                 continue
             key = (t.name, str(day))
             job = self.jobs.get(key)

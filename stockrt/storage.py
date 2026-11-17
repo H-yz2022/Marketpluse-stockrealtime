@@ -72,7 +72,7 @@ def save_frame(kind: str, key: str, df: pd.DataFrame) -> None:
 
 # How long cache files are kept since they were last written. The per-day results are published (and rebuilt if
 # ever needed); daily bars are re-downloaded on demand. Without this a server that stays up keeps every day's files.
-MAX_AGE_DAYS = {"checkpoints": 7, "accumulation": 7, "dipbuy": 7, "longterm": 7, "daily": 30}
+MAX_AGE_DAYS = {"checkpoints": 7, "accumulation": 7, "dipbuy": 10, "longterm": 7, "daily": 30}
 
 
 def prune_stale(now: float | None = None) -> tuple[int, int]:

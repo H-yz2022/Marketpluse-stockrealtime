@@ -107,7 +107,8 @@ in November 2026. Its $7-a-month Starter instance never sleeps.
 |---|---|---|
 | Before 09:15 | The front page and the Strategy lab show the last session's saved results | website, nothing computed |
 | 09:15–09:30 | Pre-open auction (集合竞价): indicative prices, gaps and the auction screen, live | website |
-| 09:30–15:00 | Real time: the auction and volume queries, the Strategy lab's signals as each signal time passes, the 尾盘选股 checkpoints at 14:00 and 14:30, 主力暗中吸筹 at 9:45 / 10:15 / 10:45 / 11:15 | website's worker, when a visitor opens them |
+| 09:30–15:00 | Real time: the auction and volume queries, the Strategy lab's signals as each signal time passes, the 尾盘选股 checkpoints at 14:00 and 14:30, 主力暗中吸筹 at 9:45 / 10:15 / 10:45 / 11:15, 低位吸筹 | website's worker, when a visitor opens them |
+| During the session | Computed ahead, while the site (or the desktop app) runs: 主力暗中吸筹 two minutes after 9:45 / 10:15 / 10:45, 尾盘选股 at 14:01 and 14:31, 低位吸筹 at 10:00 / 10:30 / 11:00 / 13:30 / 14:00 / 14:30 - ready before anyone opens them. Each runs only on time (never caught up later) and isn't listed in the sidebar | website's clock → worker |
 | 11:16 (deadline 11:40) | 主力暗中吸筹 for all four checkpoints, then fixed | website's clock → worker |
 | 15:02 (deadline 15:20) | 尾盘选股 at 14:00 / 14:30 / 15:00 and the volume book, then fixed | website's clock → worker |
 | 15:03 (deadline 15:30) | 低位吸筹 on the closing data, then fixed | website's clock → worker |
@@ -145,10 +146,13 @@ else from how long the same task really took on this server; past that, the page
 than showing a countdown it can't back up.
 
 **Why it is faster.** 尾盘选股 used to download every candidate's 60-day daily bars and today's minute series at each
-checkpoint (about 356 requests). A 30-session history panel (`results/cn/panel.parquet`, built by the daily job)
+checkpoint (about 356 requests). A 130-session history panel (`results/cn/panel.parquet`, built by the daily job)
 replaces the daily bars, and a pre-check drops stocks that cannot pass the moving-average and volume rules with
 any price inside today's range before their minute series is fetched: about 131 requests, with the same ranked list
 (checked on 29 Oct). 主力暗中吸筹 reads each candidate's minute money flow once (535 stocks in about a minute).
+低位吸筹 reads its moving averages from the same panel, picks its shortlist in one pass over it, and keeps company
+reports (扣非净利润) for the week, fetched six requests at a time: on 17 Nov 2026 (2,061 stocks checked) it went from
+193 s to 57 s on a PC in New York, and 30 s later in the week.
 
 **Where the results live.** The daily job publishes `results/` to the repository's **`results` branch** as a
 single commit that replaces the previous one. The repository's history doesn't grow, and `main` (the code) is
@@ -160,8 +164,8 @@ with an empty disk fetches them again first, showing a short "loading" notice fo
 ones are compacted to what their page shows (every stock that passed, the near misses and the closest few; the ranked
 list is unchanged, checked on all 31 saved sessions) and only the newest **60 sessions (about 12 weeks)** are kept.
 Measured: about 50 KB per A-share session and 30 KB per Hong Kong session, so the past sessions level off at about
-5 MB, and the whole publication (what a server downloads when it starts) at about 15-18 MB; it was 14 MB (a 12.5 MB
-download, under a second) in November 2026. The results branch stays one commit, so GitHub's history doesn't grow.
+5 MB, and the whole publication (what a server downloads when it starts) at about 25 MB: the 130-session history
+panel is 12.8 MB of it (5,571 stocks, prices stored to 7 significant digits). The results branch stays one commit, so GitHub's history doesn't grow.
 On the server, cached files expire too: each day's intermediate results after 7 days, daily price history after 30
 days, finished jobs' progress files after a day (`stockrt/storage.py`, checked once a day). The **Data sources** page
 shows what is stored. 主力暗中吸筹, 收盘选股 and 长线 keep 5 sessions (they store whole candidate lists), plus
@@ -269,7 +273,7 @@ app_pages/            one file per page
 ui/                   Streamlit caching, formatting, Altair charts; scheduler.py is the site's clock
 stockrt/              UI-agnostic data layer (reusable behind FastAPI later)
   jobs.py, worker.py  heavy jobs in a separate low-priority process, progress shared through files
-  checkpoint.py       尾盘选股 checkpoints; panel.py the 30-session history panel
+  checkpoint.py       尾盘选股 checkpoints; panel.py the 130-session history panel
   accumulation.py, longterm.py, closescreen.py   主力暗中吸筹, 长线, 收盘选股
   archive.py, published.py   saved sessions, rolling window, the results branch
   sources/            tencent.py, sina.py, eastmoney.py - raw endpoints and units

@@ -239,3 +239,26 @@ def test_history_precheck_skips_only_hopeless_stocks(tmp_path, monkeypatch):
     # sh600002: no fresh cross possible and too little volume for the ratio and volume rules -> skipped;
     # sh600003 isn't in the panel, so it is kept for the full check
     assert kept["code"].tolist() == ["sh600001", "sh600003"] and skipped == 1
+
+
+def test_live_screens_are_computed_on_time_but_never_caught_up(monkeypatch):
+    from ui import scheduler
+
+    submitted = []
+
+    class FakeJob:
+        active, state, error = True, "running", None
+
+    monkeypatch.setattr(scheduler, "_done", lambda t, d: False)
+    monkeypatch.setattr(scheduler, "_submit", lambda t, d, force: submitted.append(t.name) or FakeJob())
+    monkeypatch.setattr(scheduler.tradingdays, "is_trading_day", lambda m, d: True)
+    monkeypatch.setattr(scheduler.Scheduler, "_sync", lambda self, now: None)
+    monkeypatch.setattr(scheduler.Scheduler, "_prune", lambda self, now: None)
+    monkeypatch.setattr(scheduler.Scheduler, "_loop", lambda self: None)
+    s = scheduler.Scheduler()
+    s.tick(datetime(2026, 11, 17, 14, 5, tzinfo=BJ))            # Tuesday 14:05
+    assert {"tail_1400", "dip_1400", "accumulation"} <= set(submitted)
+    assert not {"dip_1330", "acc_0945", "tail_1430"} & set(submitted)   # missed moments are not caught up
+    labels = [x["label"] for x in s.status(datetime(2026, 11, 17, 14, 5, tzinfo=BJ))]
+    assert labels[0] == "主力暗中吸筹" and not any(" 1" in lbl or " 0" in lbl for lbl in labels[:1])
+    assert len(labels) == 6                                        # the sidebar lists only the day's fixed results

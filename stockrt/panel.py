@@ -1,4 +1,4 @@
-"""History panel: the last 30 sessions of daily bars for every A-share, in one small file.
+"""History panel: the last 130 sessions of daily bars for every A-share, in one file.
 
 The live rebuilds (尾盘选股 checkpoints, the morning accumulation screen, the 长线 screen) need each
 candidate's recent history - moving averages, yesterday's volume, the 5-session average. Fetching it per
@@ -22,7 +22,7 @@ import pandas as pd
 from . import archive, http, sample
 from .sources import tencent
 
-SESSIONS = 30
+SESSIONS = 130          # enough for MA120, so the live screens (低位吸筹, 长线) download no daily history
 COLUMNS = ["code", "date", "open", "close", "high", "low", "volume", "amount", "turnover_rate"]
 _lock = threading.Lock()
 _cache: dict = {"key": None, "df": None, "index": {}}
@@ -49,8 +49,8 @@ def build(codes: list[str], end: date, progress: Callable[[float, str], None] | 
         if progress:
             progress(min(i + 200, len(codes)) / max(len(codes), 1), f"History panel {min(i + 200, len(codes)):,}")
     df = pd.concat(parts, ignore_index=True).reindex(columns=COLUMNS) if parts else pd.DataFrame(columns=COLUMNS)
-    for c in ("volume", "amount", "turnover_rate"):
-        df[c] = df[c].astype("float32")
+    for c in ("open", "close", "high", "low", "volume", "amount", "turnover_rate"):
+        df[c] = df[c].astype("float32")       # 7 significant digits: plenty for prices and averages, half the size
     df["date"] = pd.to_datetime(df["date"]).dt.date
     return df
 
