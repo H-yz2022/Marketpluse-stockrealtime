@@ -9,8 +9,8 @@ The app does not use the website. This launcher opens the window and runs the pr
   program is downloaded in the background while the current one runs, then the app offers to reload. Every
   download is checked against its SHA-256, and any failure keeps the current version running.
 - One window per PC (starting it again brings the open window forward), half the screen's width, centred. It
-  remembers the language chosen in the app; download buttons (CSV) save to Downloads; outside links open in the
-  browser. Closing the window stops the program.
+  remembers the language, text size and light / dark theme chosen in the app; Ctrl + / Ctrl - zoom everything;
+  download buttons (CSV) save to Downloads; outside links open in the browser. Closing the window stops the program.
 
     python desktop/app.py                     # run from source (needs CHINA_HK_CORE)
     python desktop/build.py launcher          # build dist/ChinaHKMarkets.exe
@@ -298,9 +298,15 @@ class Server:
                 self.proc.kill()
         self.proc = None
 
-    def url(self, lang: str) -> str:
-        return f"http://127.0.0.1:{self.port}/?" + urllib.parse.urlencode(
-            {"embed": "true", "app": "desktop", "lang": lang})
+    def url(self, settings: dict) -> str:
+        """The page address with the remembered language, text size and theme (Streamlit's embed_options sets the
+        light or dark theme; without it the window follows Windows)."""
+        q = {"embed": "true", "app": "desktop", "lang": settings.get("lang", "zh"), "fs": settings.get("fs", "m"),
+             "theme": settings.get("theme", "system")}
+        option = {"light": "light_theme", "dark": "dark_theme"}.get(q["theme"])
+        if option:
+            q["embed_options"] = option
+        return f"http://127.0.0.1:{self.port}/?" + urllib.parse.urlencode(q)
 
 
 # ------------------------------------------------------------------ the window
@@ -313,9 +319,6 @@ class App:
         self.core_build: str | None = None
         self.lock = threading.Lock()
         self.closed = threading.Event()         # the window has been closed: every background loop stops
-
-    def lang(self) -> str:
-        return self.settings.get("lang", "zh")
 
     def log_tail(self) -> str:
         try:
@@ -364,7 +367,7 @@ class App:
                 w.load_html(failed(self.log_tail()))
                 return
             log(f"program {self.core_build} running on port {self.server.port}")
-            w.load_url(self.server.url(self.lang()))
+            w.load_url(self.server.url(self.settings))
             if self.core_build != "override":
                 remove_old_cores(keep=self.core_build)
                 threading.Thread(target=self.update_core, args=(info,), daemon=True).start()
@@ -395,20 +398,49 @@ class App:
             self.run()
 
     def follow_language(self) -> None:
-        """Keep the language the app shows (its `lang` address parameter) for the next start."""
-        while not self.closed.wait(5):
+        """Keep the language, text size and theme chosen in the app (address parameters) for the next start."""
+        allowed = {"lang": ("zh", "en"), "fs": ("m", "l", "xl"), "theme": ("system", "light", "dark")}
+        while not self.closed.wait(3):
             try:
                 url = self.window.get_current_url() or ""
             except Exception:  # noqa: BLE001 - the window is closing
                 return
-            lang = urllib.parse.parse_qs(urllib.parse.urlparse(url).query).get("lang", [None])[0]
-            if lang in ("zh", "en") and lang != self.settings.get("lang"):
-                self.settings["lang"] = lang
+            parts = urllib.parse.urlparse(url)
+            q = urllib.parse.parse_qs(parts.query)
+            changed = False
+            for key, ok in allowed.items():
+                value = q.get(key, [None])[0]
+                if value in ok and value != self.settings.get(key):
+                    self.settings[key], changed = value, True
+            if changed:
                 save_json(SETTINGS, self.settings)
+            reload = theme_reload(url)
+            if reload:
+                try:
+                    self.window.load_url(reload)
+                except Exception:  # noqa: BLE001 - the window is closing
+                    return
 
     def started(self) -> None:
         threading.Thread(target=self.follow_language, daemon=True).start()
         self.run()
+
+
+def theme_reload(url: str) -> str | None:
+    """The address to reload when the theme chosen in the app (`theme`) differs from the one the page was loaded
+    with (Streamlit's `embed_options`), else None."""
+    parts = urllib.parse.urlparse(url)
+    q = urllib.parse.parse_qs(parts.query)
+    if parts.scheme != "http" or "theme" not in q:
+        return None
+    want = {"light": "light_theme", "dark": "dark_theme"}.get(q["theme"][0])
+    if want == q.get("embed_options", [None])[0]:
+        return None
+    if want:
+        q["embed_options"] = [want]
+    else:
+        q.pop("embed_options", None)
+    return parts._replace(query=urllib.parse.urlencode(q, doseq=True)).geturl()
 
 
 class Api:
@@ -440,7 +472,7 @@ def main() -> int:
     webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True
     app = App()
     app.window = webview.create_window(TITLE, html=STARTING, js_api=Api(app), min_size=(640, 500), text_select=True,
-                                       **half_screen())
+                                       zoomable=True, **half_screen())
     app.window.events.closed += app.closed.set
     log("started")
     try:

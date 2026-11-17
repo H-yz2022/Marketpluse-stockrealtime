@@ -140,6 +140,14 @@ with st.sidebar:
                          "Off: the built-in sample dataset - instant, offline, nothing fetched. "
                          "On: real-time data from Tencent, Sina and East Money."))
     with st.expander(t("设置", "Settings"), icon=":material/tune:"):
+        st.segmented_control(t("字号", "Text size"), list(i18n.FONT_SIZES), key="font_size", required=True,
+                             format_func=lambda k: t(*i18n.FONT_SIZES[k][:2]))
+        if i18n.desktop():
+            st.segmented_control(t("外观", "Appearance"), list(i18n.THEMES), key="theme_pref", required=True,
+                                 format_func=lambda k: t(*i18n.THEMES[k]),
+                                 help=t("切换后窗口会在几秒内重新载入。", "The window reloads in a few seconds to switch."))
+        else:
+            st.caption(t("浅色 / 深色：右上角 ⋮ → Settings。", "Light / dark: ⋮ at the top right → Settings."))
         st.toggle(t("红涨绿跌（内地习惯）", "Red = up (mainland convention)"), key="up_red",
                   help=t("关闭：绿涨红跌（西方及部分港股软件）。", "Off: green = up, red = down (Western / many HK apps)."))
         st.number_input(t("无风险利率（年化 %）", "Risk-free rate (% a year)"), min_value=0.0, max_value=10.0, step=0.25,
@@ -148,6 +156,7 @@ with st.sidebar:
                                              "bond yield."))
 
 st.session_state.rf = st.session_state.rf_pct / 100
+i18n.appearance()
 if sample.is_sample():
     with st.container(horizontal=True, vertical_alignment="center"):
         st.badge(t("示例数据", "Sample data"), icon=":material/inventory_2:", color="orange")

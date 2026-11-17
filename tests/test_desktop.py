@@ -116,3 +116,17 @@ def test_bundled_results_are_copied_once_and_never_overwrite(tmp_path, monkeypat
     core.seed_results()
     assert (mine / "lab" / "meta.json").read_text() == "bundled" and (mine / "cn" / "2026-10-12.json").read_text() == "mine"
     sys.modules.pop("core", None)
+
+
+def test_the_window_reloads_only_when_the_theme_choice_changes(launcher):
+    app, _ = launcher
+    base = "http://127.0.0.1:8765/?embed=true&app=desktop&lang=zh&fs=l"
+    assert "embed_options=dark_theme" in app.theme_reload(base + "&theme=dark")
+    assert app.theme_reload(base + "&theme=dark&embed_options=dark_theme") is None          # already applied
+    back = app.theme_reload(base + "&theme=system&embed_options=dark_theme")                 # back to following Windows
+    assert back is not None and "embed_options" not in back and "lang=zh" in back and "fs=l" in back
+    assert app.theme_reload(base + "&theme=system") is None
+    assert app.theme_reload("data:text/html,<p>starting</p>") is None                         # the launcher's own pages
+    assert app.Server().url({"lang": "en", "fs": "xl", "theme": "light"}).endswith(
+        "lang=en&fs=xl&theme=light&embed_options=light_theme")
+

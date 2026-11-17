@@ -25,19 +25,43 @@ WEEKDAYS = "一二三四五六日"
 def init() -> None:
     """Once per visit: language and desktop mode from the address; afterwards keep the language in the address."""
     qp = st.query_params
-    if "lang" not in st.session_state:
+    if st.session_state.get("lang") not in LANGS:
         st.session_state.lang = qp.get("lang") if qp.get("lang") in LANGS else "zh"
     if "desktop" not in st.session_state:
         st.session_state.desktop = qp.get("app") == "desktop"
     if qp.get("lang") != st.session_state.lang:
         qp["lang"] = st.session_state.lang
+    # Appearance, kept in the address like the language (the desktop app remembers it from there).
+    if st.session_state.get("font_size") not in FONT_SIZES:
+        st.session_state.font_size = qp.get("fs") if qp.get("fs") in FONT_SIZES else "m"
+    if st.session_state.get("theme_pref") not in THEMES:
+        st.session_state.theme_pref = qp.get("theme") if qp.get("theme") in THEMES else "system"
+    if qp.get("fs") != st.session_state.font_size:
+        qp["fs"] = st.session_state.font_size
+    if qp.get("theme") != st.session_state.theme_pref:
+        qp["theme"] = st.session_state.theme_pref
+
+
+FONT_SIZES = {"m": ("标准", "Standard", 16), "l": ("大", "Large", 18), "xl": ("特大", "Extra large", 20)}
+THEMES = {"system": ("跟随系统", "Follow Windows"), "light": ("浅色", "Light"), "dark": ("深色", "Dark")}
+
+
+def appearance() -> None:
+    """Applies the chosen text size, and a little more contrast for the grey help text everywhere."""
+    px = FONT_SIZES.get(st.session_state.get("font_size", "m"), FONT_SIZES["m"])[2]
+    st.html(f"""<style>
+html {{ font-size: {px}px; }}
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p {{ opacity: 1; filter: none; }}
+[data-testid="stCaptionContainer"] {{ color: color-mix(in srgb, currentColor 82%, transparent); }}
+</style>""")
 
 
 def lang() -> str:
     try:
-        return st.session_state.get("lang", "zh")
+        value = st.session_state.get("lang", "zh")
     except Exception:  # noqa: BLE001 - outside a page run (tests, scripts)
         return "zh"
+    return value if value in LANGS else "zh"           # never a missing or odd value
 
 
 def zh() -> bool:
