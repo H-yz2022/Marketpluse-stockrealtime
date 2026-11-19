@@ -216,10 +216,11 @@ def run(day: date, snap: pd.DataFrame, progress: Callable[[float, str], None] | 
     if progress:
         progress(0.7, "今日主力资金 · Today's main-fund flow")
     codes = d["code"].tolist()
-    flow = realtime.main_flow(codes) if codes else pd.DataFrame(columns=["code", "main_net", "source"])
+    flow = realtime.main_flow(codes, workers=workers) if codes else pd.DataFrame(columns=["code", "main_net", "source"])
     d = d.merge(flow[["code", "main_net"]], on="code", how="left")
+    flow_src = realtime.sources(flow)
     if not flow.empty:
-        notes.append(f"Main-fund flow: {', '.join(sorted(flow['source'].dropna().unique()))}.")
+        notes.append(f"Main-fund flow: {flow_src}.")
     if progress:
         progress(0.85, "扣非净利润 · Net profit excl. non-recurring items")
     try:
@@ -233,7 +234,7 @@ def run(day: date, snap: pd.DataFrame, progress: Callable[[float, str], None] | 
             "float_mcap", "amount"]
     final = day < now.date() or now.time() >= CLOSE
     res = {"day": day, "frame": d.reindex(columns=keep), "notes": notes, "shortlisted": len(cands),
-           "computed": now.strftime("%Y-%m-%d %H:%M"), "final": final}
+           "computed": now.strftime("%Y-%m-%d %H:%M"), "final": final, "flow_sources": flow_src}
     save(res)
     return res
 

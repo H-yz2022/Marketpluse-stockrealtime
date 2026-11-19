@@ -104,7 +104,8 @@ def dipbuy(a: dict, progress) -> str:
     if checkpoint.session_day(snap) != _day(a):
         raise RuntimeError("the quotes have moved on to another session")
     res = dip.run(_day(a), snap, progress, workers=a.get("workers", 12))
-    return f"{int(dip.apply(res['frame']).passes.sum())} of {res['shortlisted']} shortlisted"
+    return (f"{int(dip.apply(res['frame']).passes.sum())} of {res['shortlisted']} shortlisted"
+            f" (money flow: {res.get('flow_sources', '?')})")
 
 
 def close_screen(a: dict, progress) -> str:

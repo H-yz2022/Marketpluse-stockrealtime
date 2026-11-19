@@ -152,7 +152,10 @@ any price inside today's range before their minute series is fetched: about 131 
 (checked on 29 Oct). 主力暗中吸筹 reads each candidate's minute money flow once (535 stocks in about a minute).
 低位吸筹 reads its moving averages from the same panel, picks its shortlist in one pass over it, and keeps company
 reports (扣非净利润) for the week, fetched six requests at a time: on 17 Nov 2026 (2,061 stocks checked) it went from
-193 s to 57 s on a PC in New York, and 30 s later in the week.
+193 s to 57 s on a PC in New York, and 30 s later in the week. Money flow comes from East Money in batches of 100
+sent six at a time; whatever it answers is kept and only the stocks it refused go to Sina (24 at a time). On 19 Nov
+2026, with East Money refusing every request from abroad, the whole screen took 78 s (it took 188-222 s earlier in
+that session, when one refused batch sent all 3,800 stocks to Sina 8 at a time). The job log names the source of each run.
 
 **Where the results live.** The daily job publishes `results/` to the repository's **`results` branch** as a
 single commit that replaces the previous one. The repository's history doesn't grow, and `main` (the code) is

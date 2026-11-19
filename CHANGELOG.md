@@ -2,6 +2,14 @@
 
 Every change to the website and the desktop app, newest first (from the project's history; regenerate with `python scripts/changelog.py`).
 
+## 2026-11-18
+
+- **低位吸筹 money flow: keep East Money's answers, send only the gaps to Sina**
+  - Money flow is fetched from East Money in batches of 100, six at a time; a refused batch no longer sends every stock to Sina, only the stocks East Money didn't answer for.
+  - The Sina fallback for 低位吸筹 now uses the job's 24 parallel requests instead of 8.
+  - On 19 Nov 2026, with East Money refusing all requests from abroad, the whole screen took 78 s (188-222 s earlier that session).
+  - The job log and the screen's notes now say which source answered, e.g. "money flow: eastmoney 3,700 · sina 77".
+
 ## 2026-11-17
 
 - **Change log: CHANGELOG.md lists every change, newest first**

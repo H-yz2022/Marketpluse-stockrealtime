@@ -66,24 +66,43 @@ def market_snapshot(mkt: str = "CN") -> pd.DataFrame:
     return df
 
 
+FLOW_CHUNK = 100                # symbols per East Money batch request
+
+
 def main_flow(codes: list[str], workers: int = 8) -> pd.DataFrame:
     """Today's main-fund (large + extra-large order) net inflow per symbol.
 
-    East Money's batch endpoint is tried first (one call, covers HK); when it is
-    blocked, A-shares fall back to Sina one request per symbol.
+    East Money's batch endpoint is tried first, 100 symbols per request and several requests at once (covers HK).
+    Whatever it answers is kept; only the A-shares it didn't answer for (a refused or empty request) go to Sina,
+    one request per symbol. Before 19 Nov 2026 one refused batch sent every symbol to Sina (3,800 requests, about
+    2.5 minutes for 低位吸筹). The `source` column says which one answered each row.
     """
     cols = ["code", "main_net", "main_net_ratio", "xl_net", "l_net", "retail_net", "source"]
     if not codes:
         return pd.DataFrame(columns=cols)
-    try:
-        df = eastmoney.main_flow_batch(codes)
-        if not df.empty and df["main_net"].notna().any():
-            return df.reindex(columns=cols)
-    except Exception as e:  # noqa: BLE001
-        log.info("eastmoney flow unavailable (%s); falling back to sina", e)
-    cn = [c for c in codes if market(c) == "CN"]
-    rows = [r for r in http.pmap(sina.money_flow, cn, workers=workers) if isinstance(r, dict)]
-    return pd.DataFrame(rows).reindex(columns=cols)
+    chunks = [codes[i:i + FLOW_CHUNK] for i in range(0, len(codes), FLOW_CHUNK)]
+    parts = []
+    for res in http.pmap(eastmoney.main_flow_batch, chunks, workers=6):
+        if isinstance(res, pd.DataFrame) and not res.empty and res["main_net"].notna().any():
+            parts.append(res.reindex(columns=cols))
+        elif isinstance(res, Exception):
+            log.info("eastmoney flow batch unavailable (%s)", res)
+    have = {c for p in parts for c in p["code"]}
+    missing = [c for c in codes if c not in have and market(c) == "CN"]
+    if missing:
+        rows = [r for r in http.pmap(sina.money_flow, missing, workers=workers) if isinstance(r, dict)]
+        if rows:
+            parts.append(pd.DataFrame(rows).reindex(columns=cols))
+    if not parts:
+        return pd.DataFrame(columns=cols)
+    return pd.concat(parts, ignore_index=True).drop_duplicates("code").reindex(columns=cols)
+
+
+def sources(df: pd.DataFrame) -> str:
+    """'eastmoney 3,700 · sina 77': which source answered how many rows (for logs and notes)."""
+    if df is None or df.empty or "source" not in df:
+        return "none"
+    return " · ".join(f"{s} {n:,}" for s, n in df["source"].fillna("?").value_counts().items())
 
 
 def breadth(snap: pd.DataFrame) -> dict:
