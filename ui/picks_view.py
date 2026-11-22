@@ -447,7 +447,7 @@ def _auction_research(spec: checkpoint.MarketSpec, view: str | None = None, day:
     if view is None:  # pre-open: offer both queries in a compact switch
         view = st.segmented_control(t("查询", "Query"), ["volume", "screen"], default="screen",
                                     key="auction_query_pre", required=True, format_func=_auction_view_name)
-    snap, ts = cache.snapshot("CN")
+    snap, ts = (cache.snapshot_live if status("CN").phase == "pre-open" else cache.snapshot)("CN")
     snap = snap[pd.to_datetime(snap["time"]).dt.date == today]
     if snap.empty:
         st.caption(t("今日还没有行情。", "No quotes for today yet."))
@@ -582,7 +582,7 @@ def _auction_view(mkt: str, spec: checkpoint.MarketSpec, pre_open: bool) -> None
     from ui import cache  # loaded only when the auction panel is shown
     from ui.i18n import INDEX_ZH
 
-    snap, ts = cache.snapshot(mkt)
+    snap, ts = (cache.snapshot_live if pre_open else cache.snapshot)(mkt)
     today = now_bj().date()
     fresh = snap[pd.to_datetime(snap["time"]).dt.date == today] if "time" in snap else snap
     if fresh.empty:

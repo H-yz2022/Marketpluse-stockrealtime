@@ -86,14 +86,14 @@ class Runner:
 
 # --------------------------------------------------------------------------- jobs in a separate process
 
-def worker_command(task: str, args_json: str, progress_file: str) -> list[str]:
-    """How to start one worker: `python -m stockrt.worker ...`, or - inside the packaged desktop program, where
-    there is no `python` - the program's own worker mode (desktop/core.py)."""
+def worker_command() -> list[str]:
+    """How to start the worker that stays running: `python -m stockrt.worker --serve`, or - inside the packaged
+    desktop program, where there is no `python` - the program's own worker mode (desktop/core.py)."""
     import sys
 
     if getattr(sys, "frozen", False):
-        return [sys.executable, "--worker", task, args_json, progress_file]
-    return [sys.executable, "-m", "stockrt.worker", task, args_json, progress_file]
+        return [sys.executable, "--worker", "--serve"]
+    return [sys.executable, "-m", "stockrt.worker", "--serve"]
 
 
 class ProcessRunner:
@@ -102,8 +102,12 @@ class ProcessRunner:
     A free Render server has a tenth of a CPU, and its health check gives up after 5 seconds. Running a
     rebuild inside the web server's own process (threads share one interpreter) starved it: measured on
     the live site, the health check went from 0.3 s to 5-10 s while a job ran, and Render restarted the
-    instance. Here the work runs in `python -m stockrt.worker` at the lowest CPU priority, the web process
-    only starts it and reads its progress file, and the worker exits when done (its memory is returned).
+    instance. Here the work runs in `python -m stockrt.worker --serve` at the lowest CPU priority; the web
+    process hands it one job at a time and reads its progress file.
+
+    The worker stays running between jobs, so each job skips loading the code (~4.5 s) and reuses its connections
+    to the data sources (a first request from the US takes 1.5-4 s, later ones 0.2-0.3 s). It is replaced by a
+    fresh one after RECYCLE jobs (its memory is returned), when it dies, or when a job runs past TIMEOUT.
 
     Jobs are de-duplicated by key, so the site's clock and a visitor asking for the same result share one
     run. Results are written to disk by the worker; pages read them from there. A visitor's request goes ahead
@@ -117,6 +121,7 @@ class ProcessRunner:
 
     TIMEOUT = 15 * 60
     RETRY_WAIT = (60, 180, 600)     # seconds before a page may try again, after the 1st, 2nd and 3rd failure
+    RECYCLE = 25                    # jobs per worker process before a fresh one starts
 
     def __init__(self) -> None:
         import collections
@@ -130,6 +135,8 @@ class ProcessRunner:
         self._queue: collections.deque = collections.deque()
         self._active: tuple | None = None
         self._proc = None
+        self._jobs_done = 0             # jobs run by the current worker process
+        self._replies = None            # its finished-job lines (a queue filled by a reader thread)
         self._lock = threading.Lock()
         self._trim_logs()
         self._write_history({"event": "server_start"})
@@ -247,37 +254,82 @@ class ProcessRunner:
 
         return self.dir / (hashlib.sha1(repr(key).encode()).hexdigest()[:16] + ".json")
 
-    def _start(self, key: tuple) -> None:
-        import json
+    def _spawn(self) -> None:
+        """Start the worker that stays running, with a thread that collects its replies."""
         import os
+        import queue
         import subprocess
         import sys
 
         from .config import ROOT
 
-        job = self._jobs[key]
-        pf = self._progress_file(key)
-        pf.unlink(missing_ok=True)
         worker_log = open(self.dir / "worker.log", "ab")  # noqa: SIM115 - closed when the process ends
         env = dict(os.environ, PYTHONIOENCODING="utf-8")
         flags = 0
         if os.name == "nt":                 # lowest priority there too; no console window from the packaged program
             flags = subprocess.BELOW_NORMAL_PRIORITY_CLASS | (
                 subprocess.CREATE_NO_WINDOW if getattr(sys, "frozen", False) else 0)
-        self._proc = subprocess.Popen(
-            worker_command(job.task, json.dumps(job.args, default=str), str(pf)),
-            cwd=str(ROOT), stdout=worker_log, stderr=subprocess.STDOUT, env=env, creationflags=flags)
+        self._proc = subprocess.Popen(worker_command(), cwd=str(ROOT), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                      stderr=worker_log, env=env, creationflags=flags, text=True, encoding="utf-8",
+                                      bufsize=1)
         self._proc._log = worker_log  # type: ignore[attr-defined]
+        self._replies = replies = queue.Queue()
+        proc = self._proc
+
+        def read() -> None:
+            for line in proc.stdout:
+                replies.put(line)
+
+        threading.Thread(target=read, daemon=True, name="worker-replies").start()
+        self._jobs_done = 0
+
+    def _retire(self) -> None:
+        """Stop the worker process (it is started again for the next job)."""
+        if self._proc is None:
+            return
+        try:
+            if self._proc.poll() is None:
+                self._proc.stdin.close()            # a worker between jobs exits when its input ends
+                try:
+                    self._proc.wait(timeout=5)
+                except Exception:  # noqa: BLE001 - still busy or stuck
+                    self._proc.kill()
+        except OSError:
+            self._proc.kill()
+        self._proc._log.close()  # type: ignore[attr-defined]
+        self._proc, self._replies = None, None
+
+    def _start(self, key: tuple) -> None:
+        import json
+
+        job = self._jobs[key]
+        pf = self._progress_file(key)
+        pf.unlink(missing_ok=True)
+        if self._proc is not None and (self._proc.poll() is not None or self._jobs_done >= self.RECYCLE):
+            self._retire()
+        if self._proc is None:
+            self._spawn()
+        self._proc.stdin.write(json.dumps({"task": job.task, "args": job.args, "progress": str(pf)},
+                                          default=str) + "\n")
+        self._proc.stdin.flush()
+        self._jobs_done += 1
         self._active = key
         job.state, job.started, job.message = "running", time.time(), "Starting the worker"
 
     def _poll(self) -> None:
         import json
+        import queue
 
         key = self._active
         job = self._jobs.get(key)
         pf = self._progress_file(key)
-        rc = self._proc.poll()              # before reading the file: a worker that just exited has written its reason
+        rc = None                           # before reading the file: a job that just ended has written its reason
+        try:
+            rc = int(json.loads(self._replies.get_nowait())["rc"])
+        except queue.Empty:
+            if self._proc.poll() is not None:               # the worker died mid-job
+                rc = self._proc.returncode or -1
+                self._retire()
         # A read can land while the worker swaps the file in (Windows refuses it then): once the worker has exited,
         # try again briefly rather than lose its error.
         for _ in range(1 if rc is None else 5):
@@ -296,13 +348,13 @@ class ProcessRunner:
             break
         if rc is None and job is not None and time.time() - job.started > self.TIMEOUT:
             self._proc.kill()
+            self._retire()
             job.error = f"timed out after {self.TIMEOUT // 60} min"
             rc = -1
         if rc is not None:
-            self._proc._log.close()  # type: ignore[attr-defined]
             if job is not None:
                 self._finish(job, rc)
-            self._active, self._proc = None, None
+            self._active = None
 
     def _loop(self) -> None:
         while True:
@@ -318,5 +370,9 @@ class ProcessRunner:
                     if self._active is not None and self._active in self._jobs:
                         self._jobs[self._active].state = "failed"
                         self._jobs[self._active].error = str(e)
-                    self._active, self._proc = None, None
+                    self._active = None
+                    try:
+                        self._retire()
+                    except Exception:  # noqa: BLE001
+                        self._proc, self._replies = None, None
             time.sleep(0.5)

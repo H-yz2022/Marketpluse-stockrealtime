@@ -136,6 +136,23 @@ def smoke() -> None:
         assert rc == 0 and state["message"].startswith("Done"), f"worker failed: {rc} {state}"
         assert (work / "data" / "results" / "lab" / "meta.json").exists(), "bundled results were not copied"
         print("worker job ok; bundled results copied")
+        # The worker the server really uses stays running and takes jobs over pipes: two jobs, one process.
+        srv_worker = subprocess.Popen([str(exe), "--worker", "--serve"], env=env, stdin=subprocess.PIPE,
+                                      stdout=subprocess.PIPE, text=True, encoding="utf-8", bufsize=1)
+        pids = []
+        for i in range(2):
+            pf = work / f"serve{i}.json"
+            srv_worker.stdin.write(json.dumps({"task": "selftest", "args": {"pause": 0, "pid": True},
+                                               "progress": str(pf)}) + "\n")
+            srv_worker.stdin.flush()
+            reply = json.loads(srv_worker.stdout.readline())
+            state = json.loads(pf.read_text(encoding="utf-8"))
+            assert reply["rc"] == 0 and state["message"].startswith("Done"), f"serving worker failed: {reply} {state}"
+            pids.append(state["message"].split("pid ")[1])
+        srv_worker.stdin.close()
+        srv_worker.wait(timeout=10)
+        assert pids[0] == pids[1], "the worker did not stay running"
+        print("serving worker ok: two jobs in one process")
     finally:
         srv.kill()
     print("smoke test passed")

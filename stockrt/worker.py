@@ -146,13 +146,15 @@ def sync(a: dict, progress) -> str:
 
 
 def selftest(a: dict, progress) -> str:
-    """Checks the worker machinery (used by the tests)."""
+    """Checks the worker machinery (used by the tests); "pid" reports which process ran it."""
     for i in range(3):
         progress((i + 1) / 4, f"step {i + 1}")
         time.sleep(a.get("pause", 0.1))
     if a.get("fail"):
         raise RuntimeError("asked to fail")
-    return "ok"
+    if a.get("crash"):
+        os._exit(3)                         # a worker that dies mid-job
+    return f"ok pid {os.getpid()}" if a.get("pid") else "ok"
 
 
 TASKS = {"selftest": selftest, "frontpage": frontpage, "accumulation": accumulation, "longterm": longterm,
@@ -160,17 +162,13 @@ TASKS = {"selftest": selftest, "frontpage": frontpage, "accumulation": accumulat
          "close_screen": close_screen, "lab_today": lab_today, "cn_close": cn_close, "sync": sync}
 
 
-def main(argv: list[str]) -> int:
-    task, args, progress_path = argv[1], json.loads(argv[2]), Path(argv[3])
-    if hasattr(os, "nice"):
-        try:
-            os.nice(19)                     # the web server always goes first
-        except OSError:
-            pass
+def run(task: str, args: dict, progress_path: Path) -> int:
+    """One job: its progress and outcome go to the progress file; returns 0 when it succeeded."""
     progress = Progress(progress_path)
     try:
-        from . import published
+        from . import http, published
 
+        http.reset_breakers()               # a source paused during an earlier job gets a fresh chance
         published.use_current()             # the same results folder the website is reading
         out = TASKS[task](args, progress)
         progress.write(1.0, f"Done: {out}")
@@ -180,6 +178,34 @@ def main(argv: list[str]) -> int:
         tb = traceback.format_exc().strip().splitlines()
         progress.write(0.0, "Failed", error=f"{type(e).__name__}: {str(e)[:300]}", where=" | ".join(tb[-4:])[:500])
         return 1
+
+
+def serve() -> int:
+    """Stay running and take jobs one at a time: one JSON line per job on stdin ({"task", "args", "progress"}),
+    one line back on stdout when it ends ({"progress", "rc"}). Code is loaded and connections to the data sources
+    are opened once, instead of for every job (measured: ~4.5 s of imports, 1.5-4 s for a source's first request
+    from the US). Anything a task prints goes to stderr (the worker log), so stdout carries only the replies."""
+    reply = sys.stdout
+    sys.stdout = sys.stderr
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        req = json.loads(line)
+        rc = run(req["task"], req.get("args") or {}, Path(req["progress"]))
+        reply.write(json.dumps({"progress": req["progress"], "rc": rc}) + "\n")
+        reply.flush()
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    if hasattr(os, "nice"):
+        try:
+            os.nice(19)                     # the web server always goes first
+        except OSError:
+            pass
+    if argv[1:2] == ["--serve"]:
+        return serve()
+    return run(argv[1], json.loads(argv[2]), Path(argv[3]))
 
 
 if __name__ == "__main__":

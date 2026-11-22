@@ -1,7 +1,7 @@
 """The program inside the desktop app: ChinaHKMarketsCore.exe, started by the launcher (desktop/app.py).
 
     --server PORT              the whole site, served on this PC only (127.0.0.1:PORT)
-    --worker TASK ARGS FILE    one background job (stockrt.worker), started by the server
+    --worker --serve           the background worker (stockrt.worker), started by the server; stays running
     --selftest                 import everything the pages need and exit 0 (used by the build)
 
 It needs no website: market data comes straight from Tencent, Sina and East Money, results are computed here
@@ -30,8 +30,9 @@ def data_dir() -> Path:
     return d
 
 
-def log_to(name: str) -> None:
-    """A windowed program has no console: send prints, warnings and tracebacks to a log file instead."""
+def log_to(name: str, keep_stdout: bool = False) -> None:
+    """A windowed program has no console: send prints, warnings and tracebacks to a log file instead. keep_stdout:
+    stdout is a pipe the parent reads (the worker's replies), so only stderr goes to the file."""
     if not FROZEN and sys.stdout is not None:
         return
     logs = data_dir() / "logs"
@@ -43,7 +44,9 @@ def log_to(name: str) -> None:
     except OSError:
         pass
     f = open(path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115 - open for the life of the process
-    sys.stdout = sys.stderr = f
+    sys.stderr = f
+    if not keep_stdout:
+        sys.stdout = f
 
 
 def exit_with_parent() -> None:
@@ -93,7 +96,14 @@ def server(port: int) -> int:
 
 
 def worker(argv: list[str]) -> int:
-    log_to("worker.log")
+    serving = argv[:1] == ["--serve"]
+    if serving and FROZEN:
+        # A windowed program starts without sys.stdin / sys.stdout even when its parent passes pipes: open them.
+        import io
+
+        sys.stdin = io.TextIOWrapper(os.fdopen(0, "rb"), encoding="utf-8")
+        sys.stdout = io.TextIOWrapper(os.fdopen(1, "wb"), encoding="utf-8", line_buffering=True)
+    log_to("worker.log", keep_stdout=serving)
     exit_with_parent()
     from stockrt import worker as w
 

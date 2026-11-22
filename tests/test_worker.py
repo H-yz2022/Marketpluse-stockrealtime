@@ -262,3 +262,53 @@ def test_live_screens_are_computed_on_time_but_never_caught_up(monkeypatch):
     labels = [x["label"] for x in s.status(datetime(2026, 11, 17, 14, 5, tzinfo=BJ))]
     assert labels[0] == "主力暗中吸筹" and not any(" 1" in lbl or " 0" in lbl for lbl in labels[:1])
     assert len(labels) == 6                                        # the sidebar lists only the day's fixed results
+
+
+def test_one_worker_process_runs_many_jobs_and_is_replaced_when_it_dies(tmp_path, monkeypatch):
+    monkeypatch.setattr("stockrt.config.DATA_DIR", tmp_path)
+    r = jobs.ProcessRunner()
+    a = r.submit(("p", 1), "selftest", {"pause": 0.01, "pid": True})
+    b = r.submit(("p", 2), "selftest", {"pause": 0.01, "pid": True})
+    _wait(a)
+    _wait(b)
+    assert a.state == b.state == "done" and a.message.split("pid ")[1] == b.message.split("pid ")[1]  # same process
+    t0 = time.time()
+    c = r.submit(("p", 3), "selftest", {"pause": 0, "pid": True})
+    _wait(c)
+    assert time.time() - t0 < 3                                   # no start-up cost: the worker was already running
+    dead = r.submit(("p", 4), "selftest", {"pause": 0.01, "crash": True})
+    _wait(dead)
+    assert dead.state == "failed" and "code 3" in dead.error      # a worker that dies mid-job: the job fails...
+    d = r.submit(("p", 5), "selftest", {"pause": 0.01, "pid": True})
+    _wait(d)
+    assert d.state == "done" and d.message.split("pid ")[1] != a.message.split("pid ")[1]  # ...and a new one starts
+    r.RECYCLE = 1                                                 # after RECYCLE jobs a fresh process takes over
+    e = r.submit(("p", 6), "selftest", {"pause": 0.01, "pid": True})
+    _wait(e)
+    assert e.state == "done" and e.message.split("pid ")[1] != d.message.split("pid ")[1]
+
+
+def test_a_stale_stock_list_is_used_at_once_and_refreshed_in_the_background(tmp_path, monkeypatch):
+    import os
+
+    import pandas as pd
+
+    from stockrt import realtime, storage
+
+    monkeypatch.setattr(storage, "CACHE_DIR", tmp_path)
+    storage.save_frame("universe", "universe_cn", pd.DataFrame({"code": ["sh600519"], "name": ["old"]}))
+    old = time.time() - 13 * 3600
+    os.utime(tmp_path / "universe" / "universe_cn.parquet", (old, old))
+    fetched = []
+    fresh = pd.DataFrame({"code": ["sh600519", "sz000001"], "name": ["new", "b"]})
+    monkeypatch.setattr(realtime.sina, "universe_cn", lambda: fetched.append(1) or fresh)
+    t0 = time.time()
+    assert realtime.universe("CN")["name"].tolist() == ["old"]   # the stale list, straight away
+    assert time.time() - t0 < 1
+    for _ in range(50):
+        if storage.load_frame("universe", "universe_cn") is not None and \
+                len(storage.load_frame("universe", "universe_cn")) == 2:
+            break
+        time.sleep(0.1)
+    assert fetched and realtime.universe("CN")["name"].tolist() == ["new", "b"]
+

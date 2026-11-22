@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 
 import numpy as np
 import pandas as pd
@@ -25,12 +26,35 @@ def quotes(codes: list[str]) -> pd.DataFrame:
     return df
 
 
+_refreshing: set[str] = set()
+
+
+def _refresh_universe_later(mkt: str) -> None:
+    """Re-download a stale stock list in the background (once at a time per market)."""
+    if mkt in _refreshing:
+        return
+    _refreshing.add(mkt)
+
+    def run() -> None:
+        try:
+            universe(mkt, refresh=True)
+        except Exception as e:  # noqa: BLE001 - the stale list stays in use
+            log.info("background stock-list refresh failed: %s", e)
+        finally:
+            _refreshing.discard(mkt)
+
+    threading.Thread(target=run, daemon=True, name=f"universe-{mkt}").start()
+
+
 def universe(mkt: str = "CN", refresh: bool = False) -> pd.DataFrame:
-    """Every listed stock in a market (code, name). Cached on disk for 12 hours."""
+    """Every listed stock in a market (code, name). Cached on disk; refreshed every 12 hours in the background,
+    so no request waits for it (the refresh used to add ~7 s to whichever snapshot found the list stale)."""
     key = f"universe_{mkt.lower()}"
     age = storage.age_seconds("universe", key)
     cached = storage.load_frame("universe", key)
-    if cached is not None and not refresh and age is not None and age < UNIVERSE_MAX_AGE:
+    if cached is not None and not refresh and age is not None:
+        if age >= UNIVERSE_MAX_AGE:
+            _refresh_universe_later(mkt)
         return cached
     if cached is None and not refresh:
         # Cold start (e.g. a fresh free-tier server): the list bundled with the app saves ~100 slow page

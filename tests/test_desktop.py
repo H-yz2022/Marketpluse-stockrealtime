@@ -78,10 +78,10 @@ def test_offline_without_a_release(launcher, monkeypatch):
 def test_the_packaged_program_starts_its_own_worker(monkeypatch):
     from stockrt import jobs
 
-    assert jobs.worker_command("t", "{}", "p.json")[1:3] == ["-m", "stockrt.worker"]
+    assert jobs.worker_command()[1:] == ["-m", "stockrt.worker", "--serve"]
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "executable", r"C:\\app\\ChinaHKMarketsCore.exe")
-    assert jobs.worker_command("t", "{}", "p.json") == [sys.executable, "--worker", "t", "{}", "p.json"]
+    assert jobs.worker_command() == [sys.executable, "--worker", "--serve"]
 
 
 def test_program_id_ignores_line_endings_and_follows_content(tmp_path, monkeypatch):

@@ -28,6 +28,14 @@ def snapshot(mkt: str) -> tuple[pd.DataFrame, str]:
     return df, now_bj().strftime("%Y-%m-%d %H:%M:%S")
 
 
+@st.cache_data(ttl="15s", max_entries=2, show_spinner=False)
+def snapshot_live(mkt: str) -> tuple[pd.DataFrame, str]:
+    """The pre-open auction panel refreshes every 20 s: a snapshot kept 60 s showed the same numbers three times
+    in four. ~3 s per whole-market snapshot."""
+    df = realtime.market_snapshot(mkt)
+    return df, now_bj().strftime("%Y-%m-%d %H:%M:%S")
+
+
 @st.cache_data(ttl="12h", max_entries=4, show_spinner=False)
 def universe(mkt: str) -> pd.DataFrame:
     return realtime.universe(mkt)

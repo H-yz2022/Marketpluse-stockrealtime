@@ -2,6 +2,14 @@
 
 Every change to the website and the desktop app, newest first (from the project's history; regenerate with `python scripts/changelog.py`).
 
+## 2026-11-22
+
+- **Quicker background jobs; stock list refreshed in the background; fresher pre-open auction**
+  - One worker process now stays running and takes jobs one at a time, so a job no longer loads the code (~4.5 s) or opens new connections to the data sources (1.5-4 s each from the US). Measured on the 收盘选股 job for 20 Nov: 22-28 s per run before, 11-15 s after the first. A fresh worker replaces it after 25 jobs, if it dies, or if a job runs past 15 minutes.
+  - The list of listed stocks is refreshed in the background every 12 hours; the stale list is used meanwhile. Before, the refresh added ~7 s to whichever market snapshot found it out of date.
+  - Pre-open auction panel: its snapshot is kept 15 s instead of 60 s, so the 20-second refresh shows new prices (it showed the same ones three times in four).
+  - The desktop program's worker takes its jobs over pipes; the build's startup test now checks two jobs run in one process.
+
 ## 2026-11-18
 
 - **低位吸筹 money flow: keep East Money's answers, send only the gaps to Sina**
