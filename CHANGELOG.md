@@ -4,6 +4,8 @@ Every change to the website and the desktop app, newest first (from the project'
 
 ## 2026-11-22
 
+- **Pre-open auction: show the index's opening gap from 09:25**
+  - The CSI 300 tile stayed blank until 09:30 because the check looked for a bid price, which indices never have. It now waits only until the index has traded (09:25 match).
 - **Quicker background jobs; stock list refreshed in the background; fresher pre-open auction**
   - One worker process now stays running and takes jobs one at a time, so a job no longer loads the code (~4.5 s) or opens new connections to the data sources (1.5-4 s each from the US). Measured on the 收盘选股 job for 20 Nov: 22-28 s per run before, 11-15 s after the first. A fresh worker replaces it after 25 jobs, if it dies, or if a job runs past 15 minutes.
   - The list of listed stocks is refreshed in the background every 12 hours; the stale list is used meanwhile. Before, the refresh added ~7 s to whichever market snapshot found it out of date.

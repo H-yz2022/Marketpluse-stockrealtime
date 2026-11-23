@@ -597,8 +597,8 @@ def _auction_view(mkt: str, spec: checkpoint.MarketSpec, pre_open: bool) -> None
     if not idx.empty:
         i = auction.indicative(idx) if pre_open else auction.opening(idx)
         idx_gap = i["gap_pct"].iloc[0] if not i.empty else None
-        if pre_open and (idx["bid1"].fillna(0).iloc[0] == 0):
-            idx_gap = None  # indices don't print during the auction - their price stays at the previous close
+        if pre_open and (idx["volume"].fillna(0).iloc[0] == 0):
+            idx_gap = None  # indices don't print until the 09:25 match (no volume yet; they never have a bid)
     index_name = t(INDEX_ZH.get(spec.index_name, spec.index_name), spec.index_name)
     with st.container(horizontal=True):
         st.metric(t(f"{index_name} · {'参考' if pre_open else '开盘'}高开幅度",
