@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 
@@ -171,6 +172,44 @@ KEEP_SESSIONS = 5   # sessions kept in full (a trading week); the other screens 
 KEEP_HISTORY = 60   # front-page sessions in the Past sessions list: about 12 weeks, compacted after the first week
 KEEP_BOOKS = 5      # volume books kept: "yesterday", the 4-day query, and 超跌反弹's 5-session return
 COMPACT_TOP = 15    # the "closest stocks" a session's page falls back to when nothing passed
+SCREEN_HISTORY = 20  # sessions kept by the other front-page screens (主力暗中吸筹, 低位吸筹, 长线, 资金选股, 热点题材)
+SCREEN_KEEP_ROWS = 50  # besides the stocks that met or nearly met the conditions, a shrunk session keeps this many
+
+
+def float32(df: pd.DataFrame) -> pd.DataFrame:
+    """Measures stored at single precision (7 significant digits - plenty for prices, percentages and CNY flows
+    as shown), which takes about a third off a session's file."""
+    return df.astype({c: "float32" for c in df.columns if df[c].dtype == "float64"})
+
+
+def keep_screen_window(days: list[date], base: Callable[[date], Path], shrink: Callable[[pd.DataFrame], pd.DataFrame],
+                       before_shrink: Callable[[dict, pd.DataFrame], None] | None = None,
+                       keep: int = KEEP_SESSIONS, history: int = SCREEN_HISTORY) -> list[Path]:
+    """A screen's rolling window (days newest first): the newest `keep` sessions in full; older ones shrunk once to
+    the rows their page can show (`shrink`), marked "compact" in their .json; those beyond `history` removed.
+    `before_shrink(meta, frame)` can record in the meta what needs the full frame. Returns the files removed."""
+    removed = []
+    for d in days[history:]:
+        for ext in (".parquet", ".json"):
+            f = base(d).with_suffix(ext)
+            if f.exists():
+                f.unlink()
+                removed.append(f)
+    for d in days[keep:history]:
+        meta_f, rows_f = base(d).with_suffix(".json"), base(d).with_suffix(".parquet")
+        if not rows_f.exists():
+            continue
+        meta = json.loads(meta_f.read_text(encoding="utf-8")) if meta_f.exists() else {}
+        if meta.get("compact"):
+            continue
+        rows = pd.read_parquet(rows_f)
+        if before_shrink is not None:
+            before_shrink(meta, rows)
+        if not rows.empty:
+            float32(shrink(rows)).to_parquet(rows_f, index=False, compression="zstd")
+        meta["compact"] = True
+        meta_f.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    return removed
 
 
 def compact_session(mkt: str, day: date) -> bool:

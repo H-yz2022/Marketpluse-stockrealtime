@@ -307,7 +307,7 @@ def load(day: date) -> dict | None:
         else {}
     return {"day": day, "frame": pd.read_parquet(base.with_suffix(".parquet")), "notes": meta.get("notes", []),
             "shortlisted": meta.get("shortlisted"), "computed": meta.get("computed", ""),
-            "final": meta.get("final", True)}
+            "final": meta.get("final", True), "compact": bool(meta.get("compact"))}
 
 
 def days() -> list[date]:
@@ -315,12 +315,13 @@ def days() -> list[date]:
     return sorted((date.fromisoformat(f.stem) for f in d.glob("*.parquet")), reverse=True) if d.exists() else []
 
 
-def prune(keep: int = archive.KEEP_SESSIONS) -> list:
-    removed = []
-    for d in days()[keep:]:
-        for ext in (".parquet", ".json"):
-            f = _base(d).with_suffix(ext)
-            if f.exists():
-                f.unlink()
-                removed.append(f)
-    return removed
+def prune(keep: int = archive.KEEP_SESSIONS, history: int = archive.SCREEN_HISTORY) -> list:
+    """20 sessions: the last week in full, older ones shrunk to the stocks that met every condition or all but
+    one (with the page's defaults) plus the closest others."""
+    def shrink(frame: pd.DataFrame) -> pd.DataFrame:
+        d = apply(frame)
+        n_rules = sum(c.startswith("r_") for c in d.columns)
+        keep_codes = set(d.loc[d["rules_met"] >= n_rules - 1, "code"]) | set(d.head(archive.SCREEN_KEEP_ROWS)["code"])
+        return frame[frame["code"].isin(keep_codes)]
+
+    return archive.keep_screen_window(days(), _base, shrink, keep=keep, history=history)

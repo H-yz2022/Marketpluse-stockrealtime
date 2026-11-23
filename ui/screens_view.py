@@ -38,6 +38,25 @@ def _until(at: time, now) -> str:
         t(f"还有{mins}分钟", f"in {mins} min")
 
 
+def _past(res: dict | None, days: list, load, key: str) -> dict | None:
+    """The session shown: the latest result by default, any kept past session (the last 20) on request."""
+    if res is None:
+        return None
+    opts = sorted(set(days) | {res["day"]}, reverse=True)
+    if len(opts) < 2:
+        return res
+    pick = st.selectbox(t("交易日", "Session"), opts, index=opts.index(res["day"]), key=key,
+                        format_func=lambda d: fday(d, long=True),
+                        help=t("最近 20 个交易日都可查看。", "Each of the last 20 sessions can be opened."))
+    if pick != res["day"]:
+        res = load(pick) or res
+    if res.get("compact"):
+        st.caption(t(":material/compress: 较早的交易日只保存满足或接近满足条件的股票，放宽条件不会让名单变长。",
+                     ":material/compress: Older sessions keep only the stocks that met or nearly met the conditions, "
+                     "so loosening the thresholds won't lengthen their lists."))
+    return res
+
+
 def _conditions(rows: list[tuple], key: str, with_on: bool, step: float) -> dict:
     """An editable conditions table (fixed column names; headings in the visitor's language)."""
     table = pd.DataFrame([{"on": r[3] if len(r) > 3 else True, "cond": t(*r[1]), "value": r[2]} for r in rows])
@@ -138,6 +157,7 @@ def accumulation_section() -> None:
             return
         st.caption(t(f":material/history: 显示最近保存的交易日：{fday(res['day'])}。",
                      f":material/history: Showing the latest saved session, {fday(res['day'])}."))
+    res = _past(res, accumulation.days(), accumulation.load, "acc_day")
     vals = {k: v for k, (v, _) in _conditions(ACC_TABLE, "acc_settings", with_on=False, step=0.5).items()}
     need_inflow = st.toggle(t("需为净流入", "Must be a net inflow"), value=True, key="acc_inflow")
     p = accumulation.Params(surge_pct=vals["surge_pct"], min_increase_m=vals["min_increase_m"],
@@ -217,6 +237,7 @@ def longterm_section() -> None:
                          f"({_until(LT_AT, now)})." + (" Showing the latest saved session." if res else "")))
         if res is None:
             return
+    res = _past(res, longterm.days(), longterm.load, "lt_day")
     v = _conditions(LT_TABLE, "lt_settings", with_on=True, step=0.5)
     off = float("inf")
     p = longterm.Params(pe_max=v["pe_max"][0] if v["pe_max"][1] else off,
@@ -300,6 +321,7 @@ def dipbuy_section() -> None:
         res = dipbuy.load(older[0]) if older else None
         if res is None:
             return
+    res = _past(res, dipbuy.days(), dipbuy.load, "dip_day")
     when = t("收盘后固定", "fixed after the close") if res["final"] else \
         t(f"实时，截至北京时间 {res['computed'][-5:]}", f"live, as of {res['computed'][-5:]} Beijing")
     st.caption(f":material/schedule: {fday(res['day'])} · {when}")
@@ -444,7 +466,7 @@ def flowpicks_section() -> None:
     if sample.is_sample():
         st.caption(t(*LIVE_ONLY))
         return
-    res = _flowpicks_result()
+    res = _past(_flowpicks_result(), flowpicks.days(), flowpicks.load, "fp_day")
     if res is None:
         return
     st.markdown(f"**{t('基础条件（排除ST始终生效）', 'Basic conditions (ST stocks always excluded)')}**")
@@ -505,14 +527,18 @@ def hot_section() -> None:
     m = _concept_map()
     if m is None:
         return
-    res = _flowpicks_result()
+    res = _past(_flowpicks_result(), flowpicks.days(), flowpicks.load, "hot_day")
     if res is None:
         return
     frame = res["frame"]
     cat = themes.catalog(m)
     sizes = dict(zip(cat["board"], cat["members"]))
     st.session_state.hot_known = tuple(cat["board"])
-    hot = themes.hot(m, frame)
+    # Kept with each session (an older, shrunk session no longer has every stock's 3-day change).
+    hot = pd.DataFrame(res["hot"]) if res.get("hot") else themes.hot(m, frame)
+    if hot.empty:
+        hot = pd.DataFrame(columns=["board", "members", "chg3", "main_net3", "up_share"])
+    hot = hot.head(12)
 
     st.markdown(f"**{t('今日领涨题材', 'Leading themes')}** · {fday(res['day'])}")
     st.caption(t("按成分股近3个交易日平均涨幅排序（全市场）；主力净流入只计站上20日均线、已查询资金的成分股。",

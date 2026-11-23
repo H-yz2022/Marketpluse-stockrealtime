@@ -140,15 +140,40 @@ def test_flows_retry_refused_batches_then_ask_sina(monkeypatch):
     assert f.loc["sh600009", "main_ratio3"] == pytest.approx(6.0)
 
 
-def test_results_are_saved_and_kept_to_the_rolling_window(results):
-    for i in range(7):
-        flowpicks.save({"day": date(2026, 11, 10 + i), "frame": frame(), "notes": ["n"], "checked": 5,
-                        "flow_checked": 4, "computed": "x"})
-    assert len(flowpicks.days()) == 7
-    flowpicks.prune(keep=5)
-    assert flowpicks.days()[0] == date(2026, 11, 16) and len(flowpicks.days()) == 5
-    res = flowpicks.load(date(2026, 11, 16))
-    assert res["checked"] == 5 and len(res["frame"]) == 5
+def test_twenty_sessions_are_kept_older_ones_shrunk(results):
+    days = list(pd.bdate_range("2026-10-01", periods=25).date)
+    f = frame().assign(main_net3=[30e6, -1e6, 30e6, -1e6, 30e6], main_net5=[50e6, -5e6, -5e6, -5e6, 50e6])
+    f = pd.concat([f, f.assign(code=f["code"] + "2")], ignore_index=True)          # 10 stocks
+    themes.save(pd.DataFrame({"code": f["code"], "board": "X", "board_code": "BK1"}), date(2026, 11, 1))
+    for d in days:
+        flowpicks.save({"day": d, "frame": f, "notes": ["n"], "checked": 5, "flow_checked": 4, "computed": "x"})
+    flowpicks.prune()
+    kept = flowpicks.days()
+    assert len(kept) == 20 and kept[0] == days[-1] and kept[-1] == days[5]          # the oldest 5 removed
+    recent, older = flowpicks.load(kept[4]), flowpicks.load(kept[5])
+    assert not recent["compact"] and len(recent["frame"]) == 10                     # the last week in full
+    assert older["compact"] and sorted(older["frame"]["code"]) == ["a", "a2", "c", "c2", "e", "e2"]  # with inflow
+    assert older["frame"]["price"].dtype == "float32"
+    assert older["hot"][0]["board"] == "X" and older["hot"][0]["members"] == 10    # leading themes kept first
+    flowpicks.prune()                                                               # shrunk only once
+    assert len(flowpicks.load(kept[5])["frame"]) == 6
+
+
+def test_older_buy_the_dip_sessions_keep_the_hits_and_near_misses(results, monkeypatch):
+    from stockrt import dipbuy
+
+    monkeypatch.setattr(archive, "SCREEN_KEEP_ROWS", 1)
+    n = 80
+    f = pd.DataFrame({"code": [f"s{i}" for i in range(n)], "drop5": -12.0, "drop5_rough": np.nan,
+                      "main_net": [40e6] * 2 + [10e6] * (n - 2), "above_ma20_pct": 1.0, "above_ma60_pct": 1.0,
+                      "above_ma120_pct": 1.0, "profit_ttm": [1e8] * 3 + [-1e8] * (n - 3), "pct_change": 1.0})
+    for d in pd.bdate_range("2026-10-01", periods=7).date:
+        dipbuy.save({"day": d, "frame": f, "notes": [], "shortlisted": n, "computed": "x", "final": True})
+    dipbuy.prune()
+    old = dipbuy.load(dipbuy.days()[-1])
+    assert old["compact"]
+    # s0, s1 pass; s2 misses only the inflow; the rest miss two rules and are dropped (bar the closest one)
+    assert set(old["frame"]["code"]) == {"s0", "s1", "s2"}
 
 
 def test_scheduler_runs_the_screen_daily_and_the_concept_map_weekly(results, monkeypatch):

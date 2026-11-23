@@ -209,8 +209,9 @@ def run(day: date, snap: pd.DataFrame, progress: Callable[[float, str], None] | 
     keep = ["code", "name", "price", "pct_change", "ma20", "above_ma20_pct", "chg20", "chg3", "vol3_change",
             "main_net3", "main_ratio3", "main_net5", "main_ratio5", "float_mcap", "turnover_rate", "amount",
             "flow_source"]
-    res = {"day": day, "frame": d.reindex(columns=keep), "notes": notes, "checked": len(base),
-           "flow_checked": len(above), "computed": now.strftime("%Y-%m-%d %H:%M")}
+    frame = d.reindex(columns=keep)
+    res = {"day": day, "frame": frame, "notes": notes, "checked": len(base), "flow_checked": len(above),
+           "computed": now.strftime("%Y-%m-%d %H:%M"), "hot": hot_ranking(frame)}
     save(res)
     return res
 
@@ -266,7 +267,7 @@ def save(res: dict):
     base = _base(res["day"])
     base.parent.mkdir(parents=True, exist_ok=True)
     res["frame"].to_parquet(base.with_suffix(".parquet"), index=False, compression="zstd")
-    meta = {k: res[k] for k in ("notes", "checked", "flow_checked", "computed")}
+    meta = {k: res.get(k) for k in ("notes", "checked", "flow_checked", "computed", "hot")}
     base.with_suffix(".json").write_text(json.dumps({"day": res["day"].isoformat(), **meta}, ensure_ascii=False),
                                          encoding="utf-8")
     return base
@@ -279,7 +280,8 @@ def load(day: date) -> dict | None:
     meta = json.loads(base.with_suffix(".json").read_text(encoding="utf-8")) if base.with_suffix(".json").exists() \
         else {}
     return {"day": day, "frame": pd.read_parquet(base.with_suffix(".parquet")), "notes": meta.get("notes", []),
-            "checked": meta.get("checked"), "flow_checked": meta.get("flow_checked"), "computed": meta.get("computed")}
+            "checked": meta.get("checked"), "flow_checked": meta.get("flow_checked"), "computed": meta.get("computed"),
+            "hot": meta.get("hot"), "compact": bool(meta.get("compact"))}
 
 
 def days() -> list[date]:
@@ -287,12 +289,26 @@ def days() -> list[date]:
     return sorted((date.fromisoformat(f.stem) for f in d.glob("*.parquet")), reverse=True) if d.exists() else []
 
 
-def prune(keep: int = archive.KEEP_SESSIONS) -> list:
-    removed = []
-    for d in days()[keep:]:
-        for ext in (".parquet", ".json"):
-            f = _base(d).with_suffix(ext)
-            if f.exists():
-                f.unlink()
-                removed.append(f)
-    return removed
+def hot_ranking(frame: pd.DataFrame) -> list[dict] | None:
+    """The session's leading themes (themes.hot), kept with the session: it needs every stock's 3-day change, which
+    an older, shrunk session no longer has."""
+    from . import themes
+
+    m = themes.load_map()
+    if m is None or frame.empty:
+        return None
+    return json.loads(themes.hot(m, frame, n=30).to_json(orient="records", force_ascii=False))
+
+
+def prune(keep: int = archive.KEEP_SESSIONS, history: int = archive.SCREEN_HISTORY) -> list:
+    """20 sessions: the last week in full (every non-ST stock); older ones shrunk to the stocks with a 3- or 5-day
+    main-fund net inflow - every stock either version can pick at the default thresholds - with the session's
+    leading themes recorded first."""
+    def shrink(frame: pd.DataFrame) -> pd.DataFrame:
+        return frame[(frame["main_net3"] > 0) | (frame["main_net5"] > 0)]
+
+    def remember_hot(meta: dict, frame: pd.DataFrame) -> None:
+        if not meta.get("hot"):
+            meta["hot"] = hot_ranking(frame)
+
+    return archive.keep_screen_window(days(), _base, shrink, before_shrink=remember_hot, keep=keep, history=history)

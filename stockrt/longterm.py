@@ -249,7 +249,7 @@ def load(day: date) -> dict | None:
     meta = json.loads(base.with_suffix(".json").read_text(encoding="utf-8")) if base.with_suffix(".json").exists() \
         else {}
     return {"day": day, "frame": pd.read_parquet(base.with_suffix(".parquet")), "notes": meta.get("notes", []),
-            "shortlisted": meta.get("shortlisted")}
+            "shortlisted": meta.get("shortlisted"), "compact": bool(meta.get("compact"))}
 
 
 def days() -> list[date]:
@@ -257,13 +257,7 @@ def days() -> list[date]:
     return sorted((date.fromisoformat(f.stem) for f in d.glob("*.parquet")), reverse=True) if d.exists() else []
 
 
-def prune(keep: int = archive.KEEP_SESSIONS) -> list:
-    removed = []
-    for d in days()[keep:]:
-        for ext in (".parquet", ".json"):
-            f = _base(d).with_suffix(ext)
-            if f.exists():
-                f.unlink()
-                removed.append(f)
-    return removed
+def prune(keep: int = archive.KEEP_SESSIONS, history: int = archive.SCREEN_HISTORY) -> list:
+    """20 sessions; the shortlist is small, so older ones are only stored at single precision (every row kept)."""
+    return archive.keep_screen_window(days(), _base, lambda frame: frame, keep=keep, history=history)
 

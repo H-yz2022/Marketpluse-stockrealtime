@@ -4,6 +4,8 @@ Every change to the website and the desktop app, newest first (from the project'
 
 ## 2026-11-23
 
+- **Past sessions on every front-page screen: the last 20, older ones shrunk**
+  - 主力暗中吸筹, 低位吸筹, 长线, 资金选股 and 热点题材 each get a session picker. Each keeps 20 sessions (about four weeks): the last week in full, older ones shrunk once to what their page shows (the stocks that met or nearly met the conditions, plus the closest others) at single precision. 资金选股 keeps the stocks with a 3- or 5-day inflow and records the session's leading themes before shrinking. On today's results the five screens take about 8 MB; only the session opened is loaded.
 - **资金选股 and 热点题材: two money-flow screens, updated daily; concept members weekly**
   - 资金选股 · basic (5-day main-fund net inflow, no ST, above MA20) with the advanced conditions on top (3-day main-fund inflow, large-order net share above 5%, free float CNY 5-30 bn, up less than 20% over 20 sessions). 热点题材 · in a chosen concept (AI 算力 by default), 3-day main-fund inflow, volume up 50%+ over 3 sessions, above MA20; quick picks for AI 算力 and 机器人, today's leading themes, and the list of companies in the chosen concepts.
   - Money flow, volume, price and market value change every session, so both screens are recomputed after each close (from 15:08, also in the daily GitHub job). Concept membership changes slowly: East Money's concept map (436 themes, about 46,000 company-theme pairs, index / holder / style lists left out) is downloaded once a week from its data centre in about 11 seconds. Every threshold can be edited or switched off on the page.

@@ -211,7 +211,7 @@ def load(day: date) -> dict | None:
     meta = json.loads(base.with_suffix(".json").read_text(encoding="utf-8"))
     return {"day": day, "frame": pd.read_parquet(base.with_suffix(".parquet")), "checkpoints":
             tuple(meta["checkpoints"]), "candidates": meta["candidates"], "notes": meta["notes"],
-            "yesterday": meta.get("yesterday")}
+            "yesterday": meta.get("yesterday"), "compact": bool(meta.get("compact"))}
 
 
 def days() -> list[date]:
@@ -219,12 +219,17 @@ def days() -> list[date]:
     return sorted((date.fromisoformat(f.stem) for f in d.glob("*.parquet")), reverse=True) if d.exists() else []
 
 
-def prune(keep: int = archive.KEEP_SESSIONS) -> list:
-    removed = []
-    for d in days()[keep:]:
-        for ext in (".parquet", ".json"):
-            f = archive.RESULTS_DIR / "cn" / "accumulation" / f"{d.isoformat()}{ext}"
-            if f.exists():
-                f.unlink()
-                removed.append(f)
-    return removed
+def prune(keep: int = archive.KEEP_SESSIONS, history: int = archive.SCREEN_HISTORY) -> list:
+    """20 sessions: the last week in full, older ones shrunk to the stocks that hit at a checkpoint (with the
+    page's default conditions) plus the closest others."""
+    def shrink(frame: pd.DataFrame) -> pd.DataFrame:
+        cps = tuple(c[4:] for c in frame.columns if c.startswith("pct_"))
+        try:
+            d = apply(frame, cps)
+        except Exception:  # noqa: BLE001 - an older layout: keep it whole
+            return frame
+        keep_codes = set(d.loc[d["hits"] > 0, "code"]) | set(d.head(archive.SCREEN_KEEP_ROWS)["code"])
+        return frame[frame["code"].isin(keep_codes)]
+
+    return archive.keep_screen_window(days(), lambda d: archive.RESULTS_DIR / "cn" / "accumulation" / d.isoformat(),
+                                      shrink, keep=keep, history=history)
