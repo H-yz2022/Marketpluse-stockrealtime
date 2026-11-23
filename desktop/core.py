@@ -118,7 +118,8 @@ def selftest() -> int:
 
     for mod in ("pandas", "numpy", "pyarrow", "altair", "requests", "sqlite3", "zoneinfo", "stockrt.worker",
                 "stockrt.checkpoint", "stockrt.lab", "stockrt.labpools", "stockrt.dipbuy", "stockrt.longterm",
-                "stockrt.accumulation", "stockrt.closescreen", "stockrt.query", "stockrt.export", "stockrt.capture",
+                "stockrt.accumulation", "stockrt.closescreen", "stockrt.flowpicks", "stockrt.themes",
+                "stockrt.query", "stockrt.export", "stockrt.capture",
                 "stockrt.etfs", "stockrt.sentiment", "stockrt.selftest", "ui.picks_view", "ui.screens_view",
                 "ui.lab_view", "ui.scheduler", "ui.charts", "ui.cache", "ui.progress"):
         importlib.import_module(mod)

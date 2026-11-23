@@ -11,6 +11,8 @@ Tasks:
     accumulation   主力暗中吸筹 at the checkpoints reached so far
     longterm       长线 on the closing data
     dipbuy         低位吸筹 - live during the session, fixed after the close
+    flowpicks      资金选股 (basic / advanced and hot-theme versions) on the closing data
+    themes         the concept map (which companies are in each concept), refreshed weekly
     close_screen   收盘选股 (16:00)
     lab_today      Strategy lab: today's signals
     cn_close       the A-share close: volume book + front page
@@ -108,6 +110,24 @@ def dipbuy(a: dict, progress) -> str:
             f" (money flow: {res.get('flow_sources', '?')})")
 
 
+def flowpicks(a: dict, progress) -> str:
+    from . import checkpoint, realtime
+    from . import flowpicks as fp
+
+    snap = realtime.market_snapshot("CN")
+    if checkpoint.session_day(snap) != _day(a):
+        raise RuntimeError("the quotes have moved on to another session")
+    res = fp.run(_day(a), snap, progress, workers=a.get("workers", 12))
+    return f"{int(fp.apply_basic(res['frame']).passes.sum())} basic+advanced; " + " ".join(res["notes"])
+
+
+def themes(a: dict, progress) -> str:
+    from . import themes as th
+
+    res = th.refresh(progress)
+    return f"{res['boards']} concepts, {res['rows']:,} companies-in-concepts"
+
+
 def close_screen(a: dict, progress) -> str:
     from . import archive, checkpoint, closescreen, realtime
 
@@ -158,7 +178,7 @@ def selftest(a: dict, progress) -> str:
 
 
 TASKS = {"selftest": selftest, "frontpage": frontpage, "accumulation": accumulation, "longterm": longterm,
-         "dipbuy": dipbuy,
+         "dipbuy": dipbuy, "flowpicks": flowpicks, "themes": themes,
          "close_screen": close_screen, "lab_today": lab_today, "cn_close": cn_close, "sync": sync}
 
 

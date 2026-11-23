@@ -372,3 +372,10 @@ def index_name(name: str) -> str:
 
 def group_name(name: str) -> str:
     return GROUPS_ZH.get(name, name) if zh() else name
+
+NOTES += [
+    (r"3- and 5-day money flow: (.+) \(of ([\d,]+) stocks above MA20\)\.",
+     "近3日 / 近5日主力资金来源：{0}（共查询站上20日均线的 {1} 只股票）。"),
+    (r"Money flow unknown for ([\d,]+) stocks \(no answer from East Money or Sina\)\.",
+     "{0} 只股票的资金流向未知（东方财富与新浪均无响应）。"),
+]

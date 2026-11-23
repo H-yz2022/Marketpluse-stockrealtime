@@ -41,9 +41,22 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from stockrt import accumulation, archive, checkpoint, closescreen, dipbuy, lab, longterm, panel, realtime  # noqa: E402
+from stockrt import (  # noqa: E402
+    accumulation,
+    archive,
+    checkpoint,
+    closescreen,
+    dipbuy,
+    flowpicks,
+    lab,
+    longterm,
+    panel,
+    realtime,
+    themes,
+)
 from stockrt.calendar import now_bj  # noqa: E402
 
+ROLLING = (longterm, accumulation, dipbuy, flowpicks)   # result folders kept to the rolling window
 LOG: list[dict] = []   # written to results/job_log.json, so failures are visible without GitHub access
 
 
@@ -141,6 +154,20 @@ def main() -> int:
         res = dipbuy.run(day, cn_snapshot(), workers=args.workers)
         return f"{day}: {int(dipbuy.apply(res['frame']).passes.sum())} of {res['shortlisted']}"
 
+    def money_flow():
+        day = checkpoint.session_day(cn_snapshot())
+        if flowpicks.load(day) is not None:
+            return f"{day} already saved"
+        res = flowpicks.run(day, cn_snapshot(), workers=args.workers)
+        hits = int(flowpicks.apply_basic(res["frame"]).passes.sum())
+        return f"{day}: {hits} basic+advanced; " + " ".join(res["notes"])
+
+    def concept_map():
+        if not themes.stale(now.date()):
+            return f"fresh (updated {themes.updated()}; weekly)"
+        res = themes.refresh()
+        return f"{res['boards']} concepts, {res['rows']:,} companies-in-concepts"
+
     def morning_accumulation():
         day = checkpoint.session_day(cn_snapshot())
         if accumulation.load(day) is not None:
@@ -161,12 +188,14 @@ def main() -> int:
 
     ok &= step("长线 (after the close)", long_term)
     ok &= step("低位吸筹 (after the close)", dip)
+    ok &= step("Concept map (weekly)", concept_map)
+    ok &= step("资金选股 (after the close)", money_flow)
     ok &= step("主力暗中吸筹 (morning checkpoints)", morning_accumulation)
     ok &= step("History panel (for tomorrow's live updates)", history_panel)
     ok &= step("Rolling window", lambda: f"{len(archive.prune_sessions('CN')) + len(archive.prune_sessions('HK'))} "
                                          f"session files, {len(archive.prune_volumes('CN'))} volume books and "
                                          f"{len(archive.prune_screens())} screen files, "
-                                         f"{sum(len(m.prune()) for m in (longterm, accumulation, dipbuy))} other "
+                                         f"{sum(len(m.prune()) for m in ROLLING)} other "
                                          "files removed")
     archive.write_index()
     archive.write_job_log(LOG, now_bj())

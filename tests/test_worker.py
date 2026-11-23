@@ -208,14 +208,15 @@ def test_clock_deadlines_and_retries(monkeypatch):
     s = scheduler.Scheduler()
     t = datetime(2026, 10, 30, 15, 10, tzinfo=BJ)                # Friday
     s.tick(t)
-    assert [n for n, _ in submitted] == ["accumulation", "cn_close", "dipbuy", "longterm"]   # due ones only
+    assert [n for n, _ in submitted] == ["accumulation", "cn_close", "dipbuy", "longterm", "themes",
+                                         "flowpicks"]             # due ones only
     s.tick(t)
-    assert len(submitted) == 4                                    # running: not queued twice
+    assert len(submitted) == 6                                    # running: not queued twice
     for j in s.jobs.values():
         j.active, j.state = False, "failed"
     s.attempts = {k: v - 11 * 60 for k, v in s.attempts.items()}  # 11 minutes later: retried, forced
     s.tick(t)
-    assert len(submitted) == 8 and all(f for _, f in submitted[4:])
+    assert len(submitted) == 12 and all(f for _, f in submitted[6:])
     done.update({"accumulation", "cn_close", "dipbuy"})
     for j in s.jobs.values():                                     # finished, but 长线 still has no result
         j.active, j.state = False, "done"
@@ -261,7 +262,7 @@ def test_live_screens_are_computed_on_time_but_never_caught_up(monkeypatch):
     assert not {"dip_1330", "acc_0945", "tail_1430"} & set(submitted)   # missed moments are not caught up
     labels = [x["label"] for x in s.status(datetime(2026, 11, 17, 14, 5, tzinfo=BJ))]
     assert labels[0] == "主力暗中吸筹" and not any(" 1" in lbl or " 0" in lbl for lbl in labels[:1])
-    assert len(labels) == 6                                        # the sidebar lists only the day's fixed results
+    assert len(labels) == 8                                        # the sidebar lists only the day's fixed results
 
 
 def test_one_worker_process_runs_many_jobs_and_is_replaced_when_it_dies(tmp_path, monkeypatch):

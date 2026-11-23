@@ -4,6 +4,9 @@ Every change to the website and the desktop app, newest first (from the project'
 
 ## 2026-11-23
 
+- **资金选股 and 热点题材: two money-flow screens, updated daily; concept members weekly**
+  - 资金选股 · basic (5-day main-fund net inflow, no ST, above MA20) with the advanced conditions on top (3-day main-fund inflow, large-order net share above 5%, free float CNY 5-30 bn, up less than 20% over 20 sessions). 热点题材 · in a chosen concept (AI 算力 by default), 3-day main-fund inflow, volume up 50%+ over 3 sessions, above MA20; quick picks for AI 算力 and 机器人, today's leading themes, and the list of companies in the chosen concepts.
+  - Money flow, volume, price and market value change every session, so both screens are recomputed after each close (from 15:08, also in the daily GitHub job). Concept membership changes slowly: East Money's concept map (436 themes, about 46,000 company-theme pairs, index / holder / style lists left out) is downloaded once a week from its data centre in about 11 seconds. Every threshold can be edited or switched off on the page.
 - **Language: first chosen from the visitor's computer; switch at the top right of every page**
   - Without a language in the address, the first one follows the browser's (or Windows') language, then the time zone (China, Hong Kong, Macau, Taiwan: 中文; elsewhere: English); nothing is looked up online. The desktop app does the same on its first start and then remembers the choice. The 中文 / English switch moved from the sidebar to the top right of every page, where it is seen first, also on phones.
 

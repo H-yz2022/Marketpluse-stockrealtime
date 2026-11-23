@@ -58,14 +58,20 @@ TASKS = _intraday() + (
     Task("cn_close", "尾盘选股 15:00", time(15, 2), time(15, 20)),
     Task("dipbuy", "低位吸筹", time(15, 3), time(15, 30)),
     Task("longterm", "长线", time(15, 6), time(15, 40)),
+    Task("themes", "题材成分（每周）", time(15, 4), time(16, 30)),
+    Task("flowpicks", "资金选股", time(15, 8), time(15, 45)),
     Task("close_screen", "收盘选股", time(16, 1), time(16, 20)),
     Task("hk_close", "港股 16:00", time(16, 12), time(16, 40), mkt="HK"),
 )
 
 
 def _done(t: Task, day: date) -> bool:
-    from stockrt import accumulation, archive, dipbuy, longterm
+    from stockrt import accumulation, archive, dipbuy, flowpicks, longterm, themes
 
+    if t.name == "themes":
+        return not themes.stale(day)             # weekly: done while the saved map is under 7 days old
+    if t.name == "flowpicks":
+        return flowpicks.load(day) is not None
     if t.name.startswith("acc_"):
         return accumulation.load_partial(day, _acc_reached(t)) is not None
     if t.name.startswith("tail_"):
@@ -106,9 +112,13 @@ def _submit(t: Task, day: date, force: bool):
     from stockrt import accumulation, checkpoint
     from stockrt.screener import ScreenParams
     from ui.picks_view import frontpage_key, job_runner
-    from ui.screens_view import acc_key, dipbuy_key, longterm_key
+    from ui.screens_view import acc_key, dipbuy_key, flowpicks_key, longterm_key, themes_key
 
     r, w = job_runner(), checkpoint.WORKERS
+    if t.name == "themes":
+        return r.submit(themes_key(day), "themes", {}, force=force)
+    if t.name == "flowpicks":
+        return r.submit(flowpicks_key(day), "flowpicks", {"day": str(day), "workers": w}, force=force)
     # The same job keys as the pages, so a visitor arriving meanwhile shares the run instead of starting another.
     if t.name.startswith("acc_"):
         reached = _acc_reached(t)
@@ -219,13 +229,13 @@ class Scheduler:
         if os.environ.get("STOCKRT_DESKTOP") == "1":
             # On the website the daily GitHub job keeps the results folder to its rolling window; a desktop copy
             # that can't reach GitHub has to do it for the results it computes itself.
-            from stockrt import accumulation, archive, dipbuy, longterm
+            from stockrt import accumulation, archive, dipbuy, flowpicks, longterm
 
             for mkt in ("CN", "HK"):
                 archive.prune_sessions(mkt)
             archive.prune_volumes("CN")
             archive.prune_screens()
-            for m in (longterm, accumulation, dipbuy):
+            for m in (longterm, accumulation, dipbuy, flowpicks):
                 m.prune()
 
     @property

@@ -100,6 +100,8 @@ FRONT_VIEWS = {
     "tail": ("尾盘选股", "Late-session"),
     "acc": ("主力暗中吸筹", "Morning accumulation"),
     "dip": ("低位吸筹", "Buy the dip"),
+    "flow": ("资金选股", "Money flow"),
+    "hot": ("热点题材", "Hot themes"),
     "close": ("收盘选股", "After-close"),
     "long": ("长线", "Long-term"),
     "lab": ("策略实验室", "Strategy lab"),
@@ -114,6 +116,10 @@ def _other_view(view: str) -> None:
         screens_view.accumulation_section()
     elif view == "dip":
         screens_view.dipbuy_section()
+    elif view == "flow":
+        screens_view.flowpicks_section()
+    elif view == "hot":
+        screens_view.hot_section()
     elif view == "close":
         _close_screen()
     elif view == "long":

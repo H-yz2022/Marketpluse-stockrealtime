@@ -1,4 +1,5 @@
-"""Front-page screens: 主力暗中吸筹 (the morning accumulation screen), 长线 (after the close) and 低位吸筹.
+"""Front-page screens: 主力暗中吸筹 (the morning accumulation screen), 长线 (after the close), 低位吸筹, and the two
+资金选股 screens (basic / advanced, and hot themes).
 
 Each keeps every candidate's measures, so the thresholds - edited right in the conditions table - re-filter
 instantly. Results are computed once per checkpoint (or once after the close) in the background and
@@ -13,7 +14,7 @@ from datetime import time
 import pandas as pd
 import streamlit as st
 
-from stockrt import accumulation, checkpoint, dipbuy, longterm, sample
+from stockrt import accumulation, checkpoint, dipbuy, flowpicks, longterm, sample, themes
 from stockrt.calendar import now_bj
 from stockrt.export import to_csv_bytes
 from ui.fmt import style_signed
@@ -51,7 +52,10 @@ def _conditions(rows: list[tuple], key: str, with_on: bool, step: float) -> dict
 MISSED_EN = {"市盈率": "P/E", "ROE": "ROE", "股价": "price", "换手率": "turnover", "机构持仓": "institutions",
              "近10日资金流入": "10-day inflow", "均线粘合": "MA convergence", "近5日跌幅": "5-session fall",
              "主力净流入": "main inflow", "扣非净利润": "profit",
-             "今日涨幅": "change today"}
+             "今日涨幅": "change today", "近5日主力净流入": "5-day main inflow",
+             "近3日主力净流入": "3-day main inflow", "20日均线": "MA20", "大单净占比": "large-order share",
+             "流通市值": "float cap", "近20日涨幅": "20-session change", "所属概念": "theme",
+             "近3日放量": "3-day volume"}
 
 
 def _missed(text: str) -> str:
@@ -80,6 +84,14 @@ def longterm_key(day) -> tuple:
 
 def dipbuy_key(day, bucket: str) -> tuple:
     return ("dipbuy", str(day), bucket)
+
+
+def flowpicks_key(day) -> tuple:
+    return ("flowpicks", str(day))
+
+
+def themes_key(day) -> tuple:
+    return ("themes", str(day))
 
 
 def accumulation_section() -> None:
@@ -327,3 +339,228 @@ def dipbuy_section() -> None:
                        icon=":material/download:")
     for n in res.get("notes", []):
         st.caption(note(n))
+
+
+# ---------------------------------------------------------------------------------------------- 资金选股
+
+FP_COLS = {
+    "code": P.TextColumn(t("代码", "Code")), "name": P.TextColumn(t("名称", "Name")),
+    "themes": P.TextColumn(t("所属概念", "Concepts")),
+    "price": P.NumberColumn(t("股价", "Price"), format="%.2f"),
+    "pct_change": P.NumberColumn(t("涨幅", "Change"), format="%+.2f%%"),
+    "main_net5": P.NumberColumn(t("近5日主力净流入", "5-day main inflow"), format="compact"),
+    "main_net3": P.NumberColumn(t("近3日主力净流入", "3-day main inflow"), format="compact"),
+    "main_ratio3": P.NumberColumn(t("近3日大单净占比", "3-day large-order share"), format="%+.2f%%"),
+    "above_ma20_pct": P.NumberColumn(t("距MA20", "vs MA20"), format="%+.1f%%"),
+    "chg20": P.NumberColumn(t("近20日涨幅", "20-session change"), format="%+.1f%%"),
+    "chg3": P.NumberColumn(t("近3日涨幅", "3-session change"), format="%+.1f%%"),
+    "vol3_change": P.NumberColumn(t("近3日成交量变化", "3-day volume change"), format="%+.0f%%"),
+    "float_mcap": P.NumberColumn(t("流通市值", "Float cap"), format="compact"),
+    "missed": P.TextColumn(t("未满足", "Missed")),
+}
+FP_BASIC_TABLE = [
+    ("inflow5_min_m", ("近5个交易日主力净流入 >（百万元）", "Main-fund net inflow, last 5 sessions, above (¥ million)"),
+     0.0),
+    ("ma_above_min", ("股价高于20日均线（%）", "Price above the 20-day moving average by (%)"), 0.0),
+]
+FP_ADV_TABLE = [
+    ("inflow3_min_m", ("近3个交易日主力净流入 >（百万元）", "Main-fund net inflow, last 3 sessions, above (¥ million)"),
+     0.0),
+    ("ratio3_min", ("大单净流入占比 >（%，近3日）", "Large-order net inflow share, last 3 sessions, above (%)"), 5.0),
+    ("cap_min", ("流通市值下限（亿元）", "Free-float market value from (¥ 100 million)"), 50.0),
+    ("cap_max", ("流通市值上限（亿元）", "Free-float market value to (¥ 100 million)"), 300.0),
+    ("chg20_max", ("近20个交易日涨幅 <（%）", "Change over the last 20 sessions below (%)"), 20.0),
+]
+HOT_TABLE = [
+    ("inflow3_min_m", ("近3个交易日主力净流入 >（百万元）", "Main-fund net inflow, last 3 sessions, above (¥ million)"),
+     0.0),
+    ("vol3_min", ("近3个交易日成交量放大 >（%）", "Volume of the last 3 sessions up more than (%)"), 50.0),
+    ("ma_above_min", ("股价高于20日均线（%）", "Price above the 20-day moving average by (%)"), 0.0),
+]
+FP_AT = flowpicks.AT
+
+
+def _flowpicks_result() -> dict | None:
+    """The latest session's 资金选股 data: computed in the background after the close if it's missing; before
+    the close (or while it computes) the latest saved session."""
+    now = now_bj()
+    day = checkpoint.latest_session_day("CN")
+    closed = day < now.date() or now.time() >= FP_AT
+    res = flowpicks.load(day) if closed else None
+    if res is None and closed:
+        job = _runner().submit(flowpicks_key(day), "flowpicks", {"day": str(day), "workers": checkpoint.WORKERS},
+                               front=True)
+        if job.active or job.state == "failed":
+            job_card(job, t("资金选股 · 正在计算收盘数据", "Money-flow picks · computing on the closing data"),
+                     t("近3日 / 近5日主力资金、均线、成交量与市值",
+                       "3- and 5-day main-fund flow, moving average, volume and market value"), typical=120)
+        res = flowpicks.load(day)
+    if res is None:
+        older = [d for d in flowpicks.days() if d < day or not closed]
+        res = flowpicks.load(older[0]) if older else None
+        if not closed:
+            st.caption(t(f":material/schedule: 今日名单在收盘后（北京时间 15:08 起，{_until(FP_AT, now)}）出现。"
+                         + ("先显示最近保存的交易日。" if res else ""),
+                         f":material/schedule: Today's list comes after the close, from 15:08 Beijing "
+                         f"({_until(FP_AT, now)})." + (" Showing the latest saved session." if res else "")))
+    return res
+
+
+def _fp_table(show: pd.DataFrame, cols: list[str], file: str) -> None:
+    signed = [c for c in ("pct_change", "main_net5", "main_net3", "main_ratio3") if c in cols]
+    st.dataframe(style_signed(show[cols], signed), hide_index=True, height=360,
+                 column_config={c: FP_COLS[c] for c in cols})
+    st.download_button(t("下载（CSV）", "Download (CSV)"), to_csv_bytes(show[cols]), file_name=file, mime="text/csv",
+                       on_click="ignore", icon=":material/download:", key=f"dl_{file}")
+
+
+def _fp_results(d: pd.DataFrame, res: dict, cols: list[str], file: str) -> None:
+    d["missed"] = d["missed"].map(_missed)
+    hits = d[d["passes"]]
+    st.markdown(t(f"{fday(res['day'])}：**{len(hits)} 只股票**满足全部条件。",
+                  f"**{len(hits)} stocks** met every condition on {fday(res['day'])}."))
+    show = hits if not hits.empty else d[d["rules_met"] == d["rules_met"].max()].head(15)
+    if hits.empty:
+        st.caption(t("没有股票满足全部条件——显示最接近的。", "Nothing met every condition - showing the closest."))
+    _fp_table(show, cols, file)
+    checked, flow_checked = res.get("checked") or 0, res.get("flow_checked") or 0
+    st.caption(t(f":material/info: 检查了 {checked:,} 只非ST、当日交易的股票；主力资金只查询站上20日均线的 "
+                 f"{flow_checked:,} 只（两个版本都要求站上均线）。计算于北京时间 {res.get('computed') or ''}。",
+                 f":material/info: {checked:,} non-ST stocks trading that day were checked; money flow was fetched "
+                 f"for the {flow_checked:,} above their 20-day average (both versions require it). Computed "
+                 f"{res.get('computed') or ''} Beijing."))
+    for n in res.get("notes", []):
+        st.caption(note(n))
+
+
+def flowpicks_section() -> None:
+    st.subheader(t("资金选股 · 基础版与进阶条件", "Money-flow picks · basic and advanced"), anchor=False)
+    with st.container(border=True):
+        st.markdown(f"**{t(flowpicks.QUERY_BASIC_ZH, flowpicks.QUERY_BASIC_EN)}**")
+        st.markdown(t(flowpicks.QUERY_ADV_ZH, flowpicks.QUERY_ADV_EN))
+        st.caption(t("每个交易日收盘后（北京时间 15:08 起）用最新数据重新计算；可在下表修改任何阈值。",
+                     "Recomputed on the latest data after every session's close (from 15:08 Beijing); edit any "
+                     "threshold in the tables below."))
+    if sample.is_sample():
+        st.caption(t(*LIVE_ONLY))
+        return
+    res = _flowpicks_result()
+    if res is None:
+        return
+    st.markdown(f"**{t('基础条件（排除ST始终生效）', 'Basic conditions (ST stocks always excluded)')}**")
+    vb = _conditions(FP_BASIC_TABLE, "fp_basic_settings", with_on=True, step=1.0)
+    adv = st.toggle(t("加上进阶条件（剔除假信号）", "Add the advanced conditions (removing false signals)"), value=True,
+                    key="fp_advanced")
+    off = float("inf")
+    p = flowpicks.BasicParams(inflow5_min_m=vb["inflow5_min_m"][0], use_inflow5=vb["inflow5_min_m"][1],
+                              ma_above_min=vb["ma_above_min"][0], use_ma=vb["ma_above_min"][1], advanced=adv)
+    if adv:
+        va = _conditions(FP_ADV_TABLE, "fp_adv_settings", with_on=True, step=1.0)
+        p.inflow3_min_m, p.use_inflow3 = va["inflow3_min_m"][0], va["inflow3_min_m"][1]
+        p.ratio3_min, p.use_ratio3 = va["ratio3_min"][0], va["ratio3_min"][1]
+        p.cap_min_bn = va["cap_min"][0] / 10 if va["cap_min"][1] else -off
+        p.cap_max_bn = va["cap_max"][0] / 10 if va["cap_max"][1] else off
+        p.chg20_max, p.use_chg20 = va["chg20_max"][0], va["chg20_max"][1]
+    d = flowpicks.apply_basic(res["frame"], p)
+    cols = ["code", "name", "price", "pct_change", "main_net5", "main_net3", "main_ratio3", "above_ma20_pct", "chg20",
+            "float_mcap", "missed"]
+    _fp_results(d, res, cols, f"flowpicks_basic_{res['day']}.csv")
+
+
+def _concept_map():
+    """The weekly concept map: downloaded in the background when missing or a week old."""
+    m = themes.load_map()
+    today = now_bj().date()
+    if m is None or themes.stale(today):
+        job = _runner().submit(themes_key(today), "themes", {}, front=m is None)
+        if m is None:
+            if job.active or job.state == "failed":
+                job_card(job, t("题材成分 · 正在下载", "Concept members · downloading"),
+                         t("每个概念包含哪些上市公司（每周更新）", "which listed companies are in each concept (weekly)"),
+                         typical=20)
+            m = themes.load_map()
+    return m
+
+
+def _set_preset() -> None:
+    key = st.session_state.get("hot_preset")
+    known = st.session_state.get("hot_known", ())
+    if key in themes.PRESETS:
+        st.session_state.hot_boards = [b for b in themes.PRESETS[key][1] if b in known]
+    elif isinstance(key, str) and key.startswith("hot:"):
+        st.session_state.hot_boards = [key[4:]]
+
+
+def hot_section() -> None:
+    st.subheader(t("热点题材共振版（龙头板块内选股）", "Hot-theme convergence (picks inside the leading sectors)"),
+                 anchor=False)
+    with st.container(border=True):
+        st.markdown(f"**{t(flowpicks.QUERY_HOT_ZH, flowpicks.QUERY_HOT_EN)}**")
+        st.caption(t("资金、成交量与均线每个交易日收盘后（北京时间 15:08 起）用最新数据更新；概念成分股每周更新一次。",
+                     "Money flow, volume and the moving average are updated on the latest data after every session's "
+                     "close (from 15:08 Beijing); which companies belong to each concept is refreshed weekly."))
+    if sample.is_sample():
+        st.caption(t(*LIVE_ONLY))
+        return
+    m = _concept_map()
+    if m is None:
+        return
+    res = _flowpicks_result()
+    if res is None:
+        return
+    frame = res["frame"]
+    cat = themes.catalog(m)
+    sizes = dict(zip(cat["board"], cat["members"]))
+    st.session_state.hot_known = tuple(cat["board"])
+    hot = themes.hot(m, frame)
+
+    st.markdown(f"**{t('今日领涨题材', 'Leading themes')}** · {fday(res['day'])}")
+    st.caption(t("按成分股近3个交易日平均涨幅排序（全市场）；主力净流入只计站上20日均线、已查询资金的成分股。",
+                 "Ranked by their companies' average change over the last 3 sessions (whole market); the main-fund "
+                 "inflow counts only the companies above MA20 whose flow was checked."))
+    st.dataframe(hot, hide_index=True, height=250, column_config={
+        "board": P.TextColumn(t("题材", "Theme")), "members": P.NumberColumn(t("成分股", "Companies"), format="%d"),
+        "chg3": P.NumberColumn(t("近3日平均涨幅", "3-session avg change"), format="%+.2f%%"),
+        "main_net3": P.NumberColumn(t("近3日主力净流入", "3-day main inflow"), format="compact"),
+        "up_share": P.NumberColumn(t("上涨家数占比", "Share rising"), format="%.0f%%")})
+
+    st.markdown(f"**{t('选择题材', 'Choose themes')}**")
+    picks = {k: t(*v[0]) for k, v in themes.PRESETS.items()}
+    picks |= {f"hot:{b}": b for b in hot["board"].head(5)}
+    st.pills(t("快速选择", "Quick picks"), list(picks), format_func=picks.get, key="hot_preset", on_change=_set_preset,
+             help=t("AI 算力与机器人各包含几个相关概念；其余为今日领涨题材。",
+                    "AI computing power and robotics each combine a few related concepts; the others are today's "
+                    "leading themes."))
+    if "hot_boards" not in st.session_state:
+        st.session_state.hot_boards = [b for b in themes.DEFAULT if b in sizes]
+    lead = list(hot["board"])
+    order = lead + [b for b in cat["board"] if b not in set(lead)]
+    boards = st.multiselect(t("题材（可多选，可输入搜索）", "Themes (several allowed; type to search)"), order,
+                            key="hot_boards", format_func=lambda b: f"{b}（{sizes.get(b, 0)}）",
+                            placeholder=t("选择一个或多个概念", "Pick one or more concepts"))
+    if not boards:
+        st.caption(t("请至少选择一个题材。", "Pick at least one theme."))
+        return
+    mem = themes.members(m, boards)
+    listed = mem.merge(frame[["code", "name", "price", "pct_change", "chg3", "main_net3", "float_mcap"]], on="code",
+                       how="inner").sort_values("chg3", ascending=False)
+    upd = themes.updated()
+    with st.expander(t(f"所选题材的成分股：{len(mem)} 家（{len(listed)} 家非ST、当日交易）",
+                       f"Companies in the chosen themes: {len(mem)} ({len(listed)} non-ST and trading)"),
+                     icon=":material/list:"):
+        st.caption(t(f"东方财富概念板块成分股，更新于 {upd}（每周更新）。",
+                     f"East Money concept-board members, updated {upd} (refreshed weekly). Theme names are East "
+                     "Money's (Chinese)."))
+        _fp_table(listed, ["code", "name", "themes", "price", "pct_change", "chg3", "main_net3", "float_mcap"],
+                  f"theme_members_{res['day']}.csv")
+
+    st.markdown(f"**{t('共振条件', 'Convergence conditions')}**")
+    v = _conditions(HOT_TABLE, "hot_settings", with_on=True, step=1.0)
+    p = flowpicks.HotParams(boards=boards, inflow3_min_m=v["inflow3_min_m"][0], use_inflow3=v["inflow3_min_m"][1],
+                            vol3_min=v["vol3_min"][0], use_vol3=v["vol3_min"][1],
+                            ma_above_min=v["ma_above_min"][0], use_ma=v["ma_above_min"][1])
+    d = flowpicks.apply_hot(frame, mem, p)
+    d = d[d["r_theme"]].reset_index(drop=True)                     # only the chosen themes' companies
+    cols = ["code", "name", "themes", "price", "pct_change", "main_net3", "vol3_change", "above_ma20_pct", "chg3",
+            "float_mcap", "missed"]
+    _fp_results(d, res, cols, f"flowpicks_hot_{res['day']}.csv")
