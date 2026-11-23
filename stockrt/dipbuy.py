@@ -1,7 +1,7 @@
 """低位吸筹 - buy the dip without catching a falling knife.
 
     低位吸筹（抄底不接飞刀）：近5个交易日跌幅超过10%，今日主力资金净流入超过3000万元，现价站上60日均线，
-    近12个月扣非净利润为正。
+    近12个月扣非净利润为正，今日涨幅小于5%。
 
 How each condition is read (every threshold can be changed on the page):
 
@@ -12,6 +12,7 @@ How each condition is read (every threshold can be changed on the page):
     站上60日均线           the price now above the average of the last 60 closes (today's price counted as one)
     扣非净利润(TTM) > 0     net profit excluding non-recurring items over the last 12 months: the latest year-to-date
                          report + the last annual report - the same period a year earlier (East Money's F10 data)
+    今日涨幅 < 5%          today's change against yesterday's close: not already chasing a big rebound
 
 The point of the combination: a sharp short drop, but the longer trend (MA60) still intact, real money buying
 today and a business that makes money - a pullback, not a collapse.
@@ -35,10 +36,10 @@ from . import archive, http, sample, storage
 from .symbols import is_st
 
 QUERY_ZH = ("低位吸筹（抄底不接飞刀）：近5个交易日跌幅超过10%，今日主力资金净流入超过3000万元，现价站上60日均线，"
-            "近12个月扣非净利润为正。")
+            "近12个月扣非净利润为正，今日涨幅小于5%。")
 QUERY_EN = ("Buy the dip, avoid the falling knife: down more than 10% over the last 5 trading days, today's "
             "main-fund net inflow above CNY 30 million, price above the 60-day moving average, and positive net "
-            "profit excluding non-recurring items over the last 12 months.")
+            "profit excluding non-recurring items over the last 12 months, and up less than 5% today.")
 SHORTLIST_DROP = 5.0          # % - loose, so the page can relax the 10% rule without recomputing
 CLOSE = time(15, 0)
 REFRESH_MIN = 15              # minutes between live recomputes during the session
@@ -50,10 +51,12 @@ class Params:
     inflow_min_m: float = 30.0       # CNY millions, today
     ma_n: int = 60                   # 20 / 60 / 120
     profit_min_m: float = 0.0        # CNY millions, trailing 12 months
+    change_max: float = 5.0          # % today's change must stay below
     use_drop: bool = True
     use_inflow: bool = True
     use_ma: bool = True
     use_profit: bool = True
+    use_change: bool = True
 
 
 def drop5_rough(snap: pd.DataFrame, day: date) -> pd.Series:
@@ -248,10 +251,12 @@ def apply(frame: pd.DataFrame, p: Params | None = None) -> pd.DataFrame:
     d["r_inflow"] = (d["main_net"] > p.inflow_min_m * 1e6) if p.use_inflow else True
     d["r_ma"] = (d[f"above_ma{ma_n}_pct"] > 0) if p.use_ma else True
     d["r_profit"] = (d["profit_ttm"] > p.profit_min_m * 1e6) if p.use_profit else True
-    cols = ["r_drop", "r_inflow", "r_ma", "r_profit"]
+    d["r_change"] = (d["pct_change"] < p.change_max) if p.use_change else True
+    cols = ["r_drop", "r_inflow", "r_ma", "r_profit", "r_change"]
     d["rules_met"] = d[cols].fillna(False).astype(bool).sum(axis=1)
     d["passes"] = d["rules_met"] == len(cols)
-    labels = {"r_drop": "近5日跌幅", "r_inflow": "主力净流入", "r_ma": f"MA{ma_n}", "r_profit": "扣非净利润"}
+    labels = {"r_drop": "近5日跌幅", "r_inflow": "主力净流入", "r_ma": f"MA{ma_n}", "r_profit": "扣非净利润",
+              "r_change": "今日涨幅"}
     d["missed"] = [", ".join(labels[c] for c, ok in zip(cols, row) if not ok)
                    for row in d[cols].fillna(False).astype(bool).itertuples(index=False)]
     return d.sort_values(["passes", "rules_met", "main_net"], ascending=False).reset_index(drop=True)

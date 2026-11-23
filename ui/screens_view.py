@@ -50,7 +50,8 @@ def _conditions(rows: list[tuple], key: str, with_on: bool, step: float) -> dict
 
 MISSED_EN = {"市盈率": "P/E", "ROE": "ROE", "股价": "price", "换手率": "turnover", "机构持仓": "institutions",
              "近10日资金流入": "10-day inflow", "均线粘合": "MA convergence", "近5日跌幅": "5-session fall",
-             "主力净流入": "main inflow", "扣非净利润": "profit"}
+             "主力净流入": "main inflow", "扣非净利润": "profit",
+             "今日涨幅": "change today"}
 
 
 def _missed(text: str) -> str:
@@ -257,6 +258,7 @@ DIP_TABLE = [
     ("inflow_min_m", ("今日主力资金净流入 >（百万元）", "Today's main-fund net inflow above (¥ million)"), 30.0),
     ("ma_n", ("现价站上N日均线（20 / 60 / 120）", "Price above the N-day moving average (20 / 60 / 120)"), 60.0),
     ("profit_min_m", ("近12个月扣非净利润 >（百万元）", "Net profit excl. one-offs, last 12 months, above (¥ million)"), 0.0),
+    ("change_max", ("今日涨幅 <（%）", "Change today below (%)"), 5.0),
 ]
 
 
@@ -293,7 +295,8 @@ def dipbuy_section() -> None:
     p = dipbuy.Params(drop5_min=v["drop5_min"][0], use_drop=v["drop5_min"][1],
                       inflow_min_m=v["inflow_min_m"][0], use_inflow=v["inflow_min_m"][1],
                       ma_n=int(v["ma_n"][0]), use_ma=v["ma_n"][1],
-                      profit_min_m=v["profit_min_m"][0], use_profit=v["profit_min_m"][1])
+                      profit_min_m=v["profit_min_m"][0], use_profit=v["profit_min_m"][1],
+                      change_max=v["change_max"][0], use_change=v["change_max"][1])
     d = dipbuy.apply(res["frame"], p)
     d["missed"] = d["missed"].map(_missed)
     hits = d[d["passes"]]

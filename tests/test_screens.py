@@ -120,11 +120,15 @@ def test_dipbuy_rules_ttm_and_refresh():
     frame = pd.DataFrame({"code": ["a", "b", "c", "d"], "drop5": [-12.0, -12.0, -8.0, -15.0], "drop5_rough": np.nan,
                           "main_net": [40e6, 10e6, 50e6, 60e6], "above_ma20_pct": 1.0,
                           "above_ma60_pct": [2.0, 3.0, 1.0, -4.0], "above_ma120_pct": 1.0,
-                          "profit_ttm": [1e8, 1e8, 1e8, 1e8]})
+                          "profit_ttm": [1e8, 1e8, 1e8, 1e8], "pct_change": 2.0})
     d = dipbuy.apply(frame).set_index("code")
     assert d.loc["a", "passes"] and not d.loc["b", "passes"] and not d.loc["c", "passes"]
     assert d.loc["b", "missed"] == "主力净流入" and d.loc["d", "missed"] == "MA60"
     assert dipbuy.apply(frame, dipbuy.Params(ma_n=60, use_ma=False)).set_index("code").loc["d", "passes"]
+    hot = dipbuy.apply(frame.assign(pct_change=[6.0, 2.0, 2.0, 2.0])).set_index("code")   # up 6% today: too late
+    assert not hot.loc["a", "passes"] and hot.loc["a", "missed"] == "今日涨幅"
+    off = dipbuy.apply(frame.assign(pct_change=6.0), dipbuy.Params(use_change=False)).set_index("code")
+    assert off.loc["a", "passes"]
 
     live = {"final": False, "computed": "2026-11-16 10:00"}
     assert not dipbuy.stale(live, datetime(2026, 11, 16, 10, 10))       # fresh enough

@@ -4,6 +4,8 @@ Every change to the website and the desktop app, newest first (from the project'
 
 ## 2026-11-22
 
+- **低位吸筹: new condition, change today below 5%**
+  - A stock already up 5% or more today has had its rebound; it no longer qualifies. Like the other conditions it can be changed or switched off on the page, and it applies to saved results at once.
 - **Desktop app: quiet updates, and the evening start asks what to do**
   - Updates no longer close and reopen the window or pop up a "Reload now?" question: a newer launcher or program is downloaded in the background and used from the next start.
   - Started by the evening schedule (ChinaHKMarkets.exe --scheduled), the app first shows a small window saying what it is, without taking the keyboard: open the app, run in the background (minimised, still computing), or not tonight. With no answer in 60 seconds it runs in the background.
