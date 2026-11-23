@@ -4,6 +4,10 @@ Every change to the website and the desktop app, newest first (from the project'
 
 ## 2026-11-22
 
+- **Desktop app: quiet updates, and the evening start asks what to do**
+  - Updates no longer close and reopen the window or pop up a "Reload now?" question: a newer launcher or program is downloaded in the background and used from the next start.
+  - Started by the evening schedule (ChinaHKMarkets.exe --scheduled), the app first shows a small window saying what it is, without taking the keyboard: open the app, run in the background (minimised, still computing), or not tonight. With no answer in 60 seconds it runs in the background.
+  - The window says where to change or turn off the evening start (Task Scheduler).
 - **Pre-open auction: show the index's opening gap from 09:25**
   - The CSI 300 tile stayed blank until 09:30 because the check looked for a bid price, which indices never have. It now waits only until the index has traded (09:25 match).
 - **Quicker background jobs; stock list refreshed in the background; fresher pre-open auction**

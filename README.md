@@ -84,9 +84,13 @@ computed there, so the hosted site sleeping or being suspended doesn't affect th
 - **While the app is open** its clock computes the day's results at their times; opened later, it catches up. When
   GitHub is reachable it also picks up the daily job's published results (past sessions, the Strategy lab's live
   record), so days when the PC was off aren't missing. Without GitHub those days stay empty.
-- **Updates.** Both parts compare themselves with the release's `version.json` at each start. The launcher swaps
-  itself and restarts; a newer program is downloaded in the background and the app offers to reload (declined, it
-  is used at the next start). Every download is checked against its SHA-256; any failure keeps the current version.
+- **Updates, quietly.** Both parts compare themselves with the release's `version.json` at each start. A newer
+  launcher or program is downloaded in the background while the app runs and used from the next start: nothing
+  restarts and nothing asks while the app is open (until 22 Nov 2026 the window closed and reopened and a reload
+  question popped up). Every download is checked against its SHA-256; any failure keeps the current version.
+- **Evening start.** A Windows scheduled task can start it with `ChinaHKMarkets.exe --scheduled` before the market
+  opens. It then shows a small window saying what it is, with three choices: open the app, run in the background
+  (minimised to the taskbar, still computing), or not tonight. With no answer in 60 s it runs in the background.
   The program's id is a hash of what goes into it, so a README change doesn't cost users a download.
 - **Housekeeping.** One copy runs at a time (starting it again brings the window forward); closing the window stops
   everything. Results, caches (pruned daily), settings and logs (`launcher.log`, `data\logs\server.log`) are in

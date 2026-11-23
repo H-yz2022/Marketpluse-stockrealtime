@@ -5,14 +5,17 @@ The app does not use the website. This launcher opens the window and runs the pr
 - The program (desktop/core.py with the whole site inside, about 85 MB to download) is fetched once from the
   repository's "desktop" release into %LOCALAPPDATA%\\ChinaHKMarkets\\core and started as a local server that only
   this PC can reach. Market data comes straight from Tencent, Sina and East Money; results are computed here.
-- Both parts keep themselves up to date from the release's version.json: the launcher swaps itself at start; a newer
-  program is downloaded in the background while the current one runs, then the app offers to reload. Every
-  download is checked against its SHA-256, and any failure keeps the current version running.
+- Both parts keep themselves up to date from the release's version.json, quietly: a newer launcher or program is
+  downloaded in the background while the app runs and is used from the next start. Nothing restarts or asks
+  while the app is open (until 22 Nov 2026 the window closed and reopened, and a reload question popped up).
+  Every download is checked against its SHA-256, and any failure keeps the current version.
+- Started by the evening schedule (`--scheduled`), it first shows a small window saying what it is, with a choice:
+  open the app, run in the background (minimised), or not tonight. With no answer it runs in the background.
 - One window per PC (starting it again brings the open window forward), half the screen's width, centred. It
   remembers the language, text size and light / dark theme chosen in the app; Ctrl + / Ctrl - zoom everything;
   download buttons (CSV) save to Downloads; outside links open in the browser. Closing the window stops the program.
 
-    python desktop/app.py                     # run from source (needs CHINA_HK_CORE)
+    python desktop/app.py [--scheduled]       # run from source (needs CHINA_HK_CORE)
     python desktop/build.py launcher          # build dist/ChinaHKMarkets.exe
 
 For testing: CHINA_HK_CORE = path of a ChinaHKMarketsCore.exe to use as it is (no download, no update);
@@ -74,7 +77,24 @@ def page(title: str, body: str, extra: str = "") -> str:
 
 
 STARTING = page("正在启动… · Starting…", "首次启动可能需要一分钟。<br>The first start can take a minute.")
-UPDATING = page("正在更新… · Updating…", "正在下载新版本并重新启动。<br>Downloading the new version and restarting.")
+SCHEDULED_WAIT = 60      # seconds before the evening start runs in the background on its own
+CHOICE = page(
+    "China &amp; HK Markets 自动启动 · Started for tonight",
+    "A 股即将开盘（北京时间 09:30）。程序在后台按时计算各个选股，打开时结果已准备好。<br>"
+    "The China market opens soon (09:30 Beijing). The app computes each screen on time in the background, so the "
+    "results are ready when you look.",
+    """<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+<button onclick="pick('open')">打开窗口 · Open the app</button>
+<button onclick="pick('background')" style="background:#555">在后台运行 · Run in the background</button>
+<button onclick="pick('skip')" style="background:#999">今晚不用 · Not tonight</button></div>
+<div id="msg"></div><p style="font-size:12px;margin-top:14px">在“任务计划程序”的 China HK Markets - trading hours
+中可更改或关闭自动启动。<br>Change or turn off the evening start in Task Scheduler (China HK Markets - trading
+hours).</p>
+<script>var left=%d,done=false;function pick(m){if(done)return;done=true;
+document.getElementById('msg').textContent='…';pywebview.api.choose(m)}
+function tick(){if(done)return;document.getElementById('msg').textContent=left+' 秒后自动在后台运行 · Runs in the '+
+'background in '+left+' s';if(left--<=0){pick('background')}else{setTimeout(tick,1000)}}
+window.addEventListener('pywebviewready',tick)</script>""" % SCHEDULED_WAIT)
 DOWNLOADING = page("正在下载程序 · Downloading the program",
                    "只需下载一次，之后直接启动。<br>This happens once; after that the app starts straight away.",
                    '<div class="bar"><div id="fill"></div></div><div id="msg">0%</div>'
@@ -168,32 +188,35 @@ def already_running() -> bool:
 
 # ------------------------------------------------------------------ the launcher's own update
 
-def update_launcher(window: webview.Window, info: dict | None) -> bool:
-    """If the release has a newer launcher: download it, check it, swap it in and restart. True when restarting."""
+def remove_old_launchers() -> None:
     exe = Path(sys.executable)
     for old in exe.parent.glob(exe.stem + ".old*.exe"):           # left by the last update
         try:
             old.unlink()
         except OSError:
             pass
-    if not getattr(sys, "frozen", False) or BUILD == "dev" or not info:
-        return False
-    try:
-        if not info.get("build") or info["build"] == BUILD:
+
+
+def update_launcher(info: dict | None, exe: Path | None = None) -> bool:
+    """If the release has a newer launcher: download it, check it and put it in place of this file, quietly. This
+    copy keeps running (a running program can be renamed); the new one starts next time. True when swapped."""
+    if exe is None:
+        if not getattr(sys, "frozen", False) or BUILD == "dev":
             return False
-        window.load_html(UPDATING)
+        exe = Path(sys.executable)
+    try:
+        if not info or not info.get("build") or info["build"] == BUILD:
+            return False
         data = fetch("ChinaHKMarkets.exe", timeout=120)
         if hashlib.sha256(data).hexdigest() != info.get("sha256"):
             return False                                          # incomplete or altered download: keep this one
         new = exe.with_name(exe.stem + ".new.exe")
         new.write_bytes(data)
-        exe.rename(exe.with_name(f"{exe.stem}.old{int(time.time())}.exe"))   # a running program can be renamed
+        exe.rename(exe.with_name(f"{exe.stem}.old{int(time.time())}.exe"))
         new.rename(exe)
-        env = dict(os.environ, PYINSTALLER_RESET_ENVIRONMENT="1")
-        subprocess.Popen([str(exe)], env=env, creationflags=getattr(subprocess, "DETACHED_PROCESS", 0), close_fds=True)
-        window.destroy()
+        log(f"launcher {info['build'][:7]} ready for the next start")
         return True
-    except Exception:  # noqa: BLE001 - never let an update stop the app from opening
+    except Exception:  # noqa: BLE001 - never let an update disturb the app
         return False
 
 
@@ -319,6 +342,8 @@ class App:
         self.core_build: str | None = None
         self.lock = threading.Lock()
         self.closed = threading.Event()         # the window has been closed: every background loop stops
+        self.scheduled = False                  # started by the evening schedule: show the choice first
+        self.updating = False
 
     def log_tail(self) -> str:
         try:
@@ -333,8 +358,6 @@ class App:
         try:
             w = self.window
             info = remote_info()
-            if update_launcher(w, info):
-                return
             core = installed_core()
             if core is None:
                 if not info or not info.get("core"):
@@ -370,7 +393,7 @@ class App:
             w.load_url(self.server.url(self.settings))
             if self.core_build != "override":
                 remove_old_cores(keep=self.core_build)
-                threading.Thread(target=self.update_core, args=(info,), daemon=True).start()
+            threading.Thread(target=self.update_quietly, args=(info,), daemon=True).start()
         except Exception as e:  # noqa: BLE001 - show it rather than leave a blank window
             import traceback
 
@@ -380,22 +403,33 @@ class App:
         finally:
             self.lock.release()
 
-    def update_core(self, info: dict | None) -> None:
-        """A newer program: download it quietly while this one runs, then offer to reload. Declined or closed
-        first, it is simply the one that starts next time."""
+    def update_quietly(self, info: dict | None) -> None:
+        """Newer versions are downloaded while this one runs and used from the next start: no restart, no question,
+        nothing for the person to do. (The running program keeps its folder until then.)"""
+        if self.updating:
+            return
+        self.updating = True
+        update_launcher(info)
         core = (info or {}).get("core")
-        if not core or core.get("build") == self.core_build or not download_core(core):
+        if core and self.core_build != "override" and core.get("build") != self.core_build and download_core(core):
+            log(f"program {core.get('build')} ready for the next start")
+
+    def choose(self, mode: str) -> None:
+        """The evening start's choice: open the window, run minimised in the background, or close for tonight."""
+        log(f"evening start: {mode}")
+        w = self.window
+        if mode == "skip":
+            w.destroy()
             return
-        try:
-            now = self.window.create_confirmation_dialog(
-                TITLE, "新版本已准备好，现在重新载入吗？\n\nA new version is ready. Reload now?")
-        except Exception:  # noqa: BLE001 - the window is closing
-            return
-        if now and not self.closed.is_set():
-            log(f"reloading with the program {core.get('build')}")
-            self.window.load_html(STARTING)
-            self.server.stop()
-            self.run()
+        if mode == "open":
+            size = half_screen()
+            w.resize(size["width"], size["height"])
+            if "x" in size:
+                w.move(size["x"], size["y"])
+        else:
+            w.minimize()
+        w.load_html(STARTING)
+        threading.Thread(target=self.run, daemon=True).start()
 
     def follow_language(self) -> None:
         """Keep the language, text size and theme chosen in the app (address parameters) for the next start."""
@@ -423,7 +457,8 @@ class App:
 
     def started(self) -> None:
         threading.Thread(target=self.follow_language, daemon=True).start()
-        self.run()
+        if not self.scheduled:
+            self.run()
 
 
 def theme_reload(url: str) -> str | None:
@@ -453,6 +488,10 @@ class Api:
     def retry(self) -> None:
         threading.Thread(target=self._app.run, daemon=True).start()
 
+    def choose(self, mode: str) -> None:
+        if mode in ("open", "background", "skip"):
+            threading.Thread(target=self._app.choose, args=(mode,), daemon=True).start()
+
 
 def half_screen() -> dict:
     """Half the screen's width and most of its height, centred (in the screen's own units)."""
@@ -470,11 +509,23 @@ def main() -> int:
     HOME.mkdir(parents=True, exist_ok=True)
     webview.settings["ALLOW_DOWNLOADS"] = True
     webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True
+    remove_old_launchers()
     app = App()
-    app.window = webview.create_window(TITLE, html=STARTING, js_api=Api(app), min_size=(640, 500), text_select=True,
-                                       zoomable=True, **half_screen())
+    app.scheduled = "--scheduled" in sys.argv[1:]
+    if app.scheduled:                       # a small window that says what it is, without taking the keyboard
+        size = {"width": 620, "height": 440}
+        try:
+            s = webview.screens[0]
+            size.update(x=(s.width - 620) // 2, y=max((s.height - 440) // 2, 0))
+        except Exception:  # noqa: BLE001 - the system places it
+            pass
+        app.window = webview.create_window(TITLE, html=CHOICE, js_api=Api(app), min_size=(480, 360),
+                                           text_select=True, zoomable=True, focus=False, **size)
+    else:
+        app.window = webview.create_window(TITLE, html=STARTING, js_api=Api(app), min_size=(640, 500),
+                                           text_select=True, zoomable=True, **half_screen())
     app.window.events.closed += app.closed.set
-    log("started")
+    log("started (evening schedule)" if app.scheduled else "started")
     try:
         webview.start(app.started, private_mode=False, storage_path=str(HOME))
     finally:

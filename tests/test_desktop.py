@@ -130,3 +130,32 @@ def test_the_window_reloads_only_when_the_theme_choice_changes(launcher):
     assert app.Server().url({"lang": "en", "fs": "xl", "theme": "light"}).endswith(
         "lang=en&fs=xl&theme=light&embed_options=light_theme")
 
+
+
+def test_a_newer_launcher_is_put_in_place_quietly_for_the_next_start(launcher, tmp_path):
+    app, release = launcher
+    new = b"new launcher"
+    (release / "ChinaHKMarkets.exe").write_bytes(new)
+    exe = tmp_path / "ChinaHKMarkets.exe"
+    exe.write_bytes(b"old launcher")
+    info = {"build": "launcher2", "sha256": hashlib.sha256(new).hexdigest()}
+    assert app.update_launcher(info, exe) is True
+    assert exe.read_bytes() == new                                  # used from the next start
+    assert [p.read_bytes() for p in tmp_path.glob("ChinaHKMarkets.old*.exe")] == [b"old launcher"]
+    assert app.update_launcher({"build": app.BUILD, "sha256": ""}, exe) is False      # same version: nothing
+
+
+def test_an_altered_launcher_download_is_ignored(launcher, tmp_path):
+    app, release = launcher
+    (release / "ChinaHKMarkets.exe").write_bytes(b"tampered")
+    exe = tmp_path / "ChinaHKMarkets.exe"
+    exe.write_bytes(b"old launcher")
+    assert app.update_launcher({"build": "launcher2", "sha256": "0" * 64}, exe) is False
+    assert exe.read_bytes() == b"old launcher" and not list(tmp_path.glob("*.old*.exe"))
+
+
+def test_the_evening_start_explains_itself_and_offers_a_choice(launcher):
+    app, _ = launcher
+    for choice in ("pick('open')", "pick('background')", "pick('skip')", "Task Scheduler"):
+        assert choice in app.CHOICE
+    assert f"var left={app.SCHEDULED_WAIT}" in app.CHOICE and "reload" not in app.CHOICE.lower()
