@@ -4,9 +4,11 @@
     bi("中文 · English")      one side of an older bilingual string
 
 The language and whether the page is shown inside the desktop app come from the address once per visit
-(`?lang=en`, `?app=desktop`); the sidebar switch changes the language and keeps it in the address, so reloads,
-bookmarks and the desktop app keep it too. Text made by the data layer (market status, the session note, rule
-names, a run's notes) is in English there; the helpers below give its Chinese.
+(`?lang=en`, `?app=desktop`). Without `lang` in the address, the first language follows the visitor's own
+computer (see detect): the browser's language, then its time zone. The switch at the top right of every page
+changes the language and keeps it in the address, so reloads, bookmarks and the desktop app keep it too. Text made
+by the data layer (market status, the session note, rule names, a run's notes) is in English there; the helpers
+below give its Chinese.
 """
 
 from __future__ import annotations
@@ -20,13 +22,37 @@ import streamlit as st
 LANGS = {"zh": "中文", "en": "English"}
 _CJK = re.compile(r"[㐀-鿿]")
 WEEKDAYS = "一二三四五六日"
+# Time zones of mainland China, Hong Kong, Macau and Taiwan (current names and old aliases).
+ZH_ZONES = {"Asia/Shanghai", "Asia/Chongqing", "Asia/Chungking", "Asia/Harbin", "Asia/Urumqi", "Asia/Kashgar",
+            "Asia/Hong_Kong", "Asia/Macau", "Asia/Macao", "Asia/Taipei", "PRC", "Hongkong", "ROC"}
+
+
+def detect(locale: str | None, timezone: str | None) -> str:
+    """The first language for a visitor who hasn't chosen one, from their own computer - nothing is looked up
+    online. The system (browser) language decides when it is Chinese or English; otherwise the time zone does
+    (China, Hong Kong, Macau, Taiwan: 中文; elsewhere: English); with neither known, 中文."""
+    loc = (locale or "").strip().lower()
+    if loc.startswith("zh"):
+        return "zh"
+    if loc.startswith("en"):
+        return "en"
+    if timezone in ZH_ZONES:
+        return "zh"
+    return "en" if loc or timezone else "zh"
+
+
+def _detected() -> str:
+    try:
+        return detect(st.context.locale, st.context.timezone)
+    except Exception:  # noqa: BLE001 - no browser information (tests, bare mode)
+        return "zh"
 
 
 def init() -> None:
     """Once per visit: language and desktop mode from the address; afterwards keep the language in the address."""
     qp = st.query_params
     if st.session_state.get("lang") not in LANGS:
-        st.session_state.lang = qp.get("lang") if qp.get("lang") in LANGS else "zh"
+        st.session_state.lang = qp.get("lang") if qp.get("lang") in LANGS else _detected()
     if "desktop" not in st.session_state:
         st.session_state.desktop = qp.get("app") == "desktop"
     if qp.get("lang") != st.session_state.lang:

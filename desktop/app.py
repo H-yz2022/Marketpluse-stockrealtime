@@ -323,9 +323,12 @@ class Server:
 
     def url(self, settings: dict) -> str:
         """The page address with the remembered language, text size and theme (Streamlit's embed_options sets the
-        light or dark theme; without it the window follows Windows)."""
-        q = {"embed": "true", "app": "desktop", "lang": settings.get("lang", "zh"), "fs": settings.get("fs", "m"),
+        light or dark theme; without it the window follows Windows). No language remembered yet (first start): the
+        page picks one from the Windows display language and time zone, and follow_language keeps it."""
+        q = {"embed": "true", "app": "desktop", "lang": settings.get("lang"), "fs": settings.get("fs", "m"),
              "theme": settings.get("theme", "system")}
+        if q["lang"] not in ("zh", "en"):
+            del q["lang"]
         option = {"light": "light_theme", "dark": "dark_theme"}.get(q["theme"])
         if option:
             q["embed_options"] = option

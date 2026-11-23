@@ -2,7 +2,8 @@
 
 Run:  streamlit run streamlit_app.py
 
-The interface is in one language at a time: 中文 by default, English from the sidebar switch (ui/i18n.py). The
+The interface is in one language at a time, first chosen from the visitor's own computer (ui/i18n.detect), then
+from the 中文 / English switch at the top right of every page. The
 desktop app opens the site with ?app=desktop, which leaves out website-only parts.
 """
 
@@ -129,8 +130,6 @@ def switch_language() -> None:
 
 
 with st.sidebar:
-    st.segmented_control("Language", list(i18n.LANGS), format_func=i18n.LANGS.get, key="lang", required=True,
-                         on_change=switch_language, label_visibility="collapsed")
     market_clock()
     if not i18n.desktop():           # the sample dataset is a website demo; the desktop app always shows live data
         st.toggle(t("实时数据", "Live data"), value=not sample.is_sample(), key="live_data",
@@ -157,6 +156,12 @@ with st.sidebar:
 
 st.session_state.rf = st.session_state.rf_pct / 100
 i18n.appearance()
+# The language switch: top right of every page, where it is seen first (the sidebar is folded away on phones).
+with st.container(horizontal=True, horizontal_alignment="right", vertical_alignment="center", gap="small",
+                  key="lang_bar"):
+    st.markdown(":material/translate:", width="content")
+    st.segmented_control("语言 · Language", list(i18n.LANGS), format_func=i18n.LANGS.get, key="lang", required=True,
+                         on_change=switch_language, label_visibility="collapsed", width="content")
 if sample.is_sample():
     with st.container(horizontal=True, vertical_alignment="center"):
         st.badge(t("示例数据", "Sample data"), icon=":material/inventory_2:", color="orange")

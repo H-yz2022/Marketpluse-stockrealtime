@@ -2,6 +2,11 @@
 
 Every change to the website and the desktop app, newest first (from the project's history; regenerate with `python scripts/changelog.py`).
 
+## 2026-11-23
+
+- **Language: first chosen from the visitor's computer; switch at the top right of every page**
+  - Without a language in the address, the first one follows the browser's (or Windows') language, then the time zone (China, Hong Kong, Macau, Taiwan: 中文; elsewhere: English); nothing is looked up online. The desktop app does the same on its first start and then remembers the choice. The 中文 / English switch moved from the sidebar to the top right of every page, where it is seen first, also on phones.
+
 ## 2026-11-22
 
 - **低位吸筹: new condition, change today below 5%**

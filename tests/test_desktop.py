@@ -129,6 +129,7 @@ def test_the_window_reloads_only_when_the_theme_choice_changes(launcher):
     assert app.theme_reload("data:text/html,<p>starting</p>") is None                         # the launcher's own pages
     assert app.Server().url({"lang": "en", "fs": "xl", "theme": "light"}).endswith(
         "lang=en&fs=xl&theme=light&embed_options=light_theme")
+    assert "lang=" not in app.Server().url({})              # first start: the page follows Windows
 
 
 

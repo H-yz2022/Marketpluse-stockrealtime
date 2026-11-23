@@ -127,3 +127,15 @@ def test_hk_half_day_and_next_session():
     assert after.phase == "closed" and str(after.next_session) == "2026-12-28"
     friday = calendar.status("CN", bj("2026-10-09 16:00"))
     assert "next session Mon 12 Oct" in friday.label
+
+
+def test_first_language_follows_the_visitors_computer():
+    from ui.i18n import detect
+
+    assert detect("zh-CN", "America/New_York") == "zh"       # the system language decides first
+    assert detect("zh-TW", None) == "zh" and detect("zh-Hant-HK", None) == "zh"
+    assert detect("en-US", "Asia/Shanghai") == "en"
+    assert detect("ja-JP", "Asia/Hong_Kong") == "zh"         # neither: the time zone decides
+    assert detect("de-DE", "Europe/Berlin") == "en"
+    assert detect(None, "Asia/Taipei") == "zh" and detect(None, "Europe/London") == "en"
+    assert detect(None, None) == "zh" and detect("", "") == "zh"   # nothing known: 中文, as before
