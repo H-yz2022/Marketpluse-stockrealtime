@@ -43,12 +43,14 @@ def _at(hhmm: str, plus: int = 0) -> time:
 def _intraday() -> tuple[Task, ...]:
     """While the server runs during the session, each live screen is computed at its checkpoint, so it is ready
     before anyone opens it: 主力暗中吸筹 after each morning checkpoint, 尾盘选股 at 14:00 and 14:30, and 低位吸筹
-    every half hour. Each has 20-25 minutes to finish before it counts as missed."""
+    and 资金选股 / 热点题材 every half hour. Each has 20-25 minutes to finish before it counts as missed."""
     tasks = [Task(f"acc_{c.replace(':', '')}", f"主力暗中吸筹 {c}", _at(c, 2), _at(c, 22), intraday=True)
              for c in ("09:45", "10:15", "10:45")]
     tasks += [Task("tail_1400", "尾盘选股 14:00", _at("14:00", 1), _at("14:00", 25), intraday=True),
               Task("tail_1430", "尾盘选股 14:30", _at("14:30", 1), _at("14:30", 25), intraday=True)]
     tasks += [Task(f"dip_{c.replace(':', '')}", f"低位吸筹 {c}", _at(c), _at(c, 20), intraday=True)
+              for c in ("10:00", "10:30", "11:00", "13:30", "14:00", "14:30")]
+    tasks += [Task(f"fp_{c.replace(':', '')}", f"资金选股 {c}", _at(c, 3), _at(c, 25), intraday=True)
               for c in ("10:00", "10:30", "11:00", "13:30", "14:00", "14:30")]
     return tuple(tasks)
 
@@ -71,7 +73,11 @@ def _done(t: Task, day: date) -> bool:
     if t.name == "themes":
         return not themes.stale(day)             # weekly: done while the saved map is under 7 days old
     if t.name == "flowpicks":
-        return flowpicks.load(day) is not None
+        res = flowpicks.load(day)
+        return res is not None and bool(res["final"])
+    if t.name.startswith("fp_"):
+        res = flowpicks.load(day)
+        return res is not None and (bool(res["final"]) or (res["computed"] or "") >= f"{day} {t.start:%H:%M}")
     if t.name.startswith("acc_"):
         return accumulation.load_partial(day, _acc_reached(t)) is not None
     if t.name.startswith("tail_"):
@@ -117,8 +123,12 @@ def _submit(t: Task, day: date, force: bool):
     r, w = job_runner(), checkpoint.WORKERS
     if t.name == "themes":
         return r.submit(themes_key(day), "themes", {}, force=force)
-    if t.name == "flowpicks":
-        return r.submit(flowpicks_key(day), "flowpicks", {"day": str(day), "workers": w}, force=force)
+    if t.name == "flowpicks" or t.name.startswith("fp_"):
+        from stockrt import flowpicks
+        from stockrt.calendar import now_bj
+
+        part = "close" if t.name == "flowpicks" else flowpicks.bucket(now_bj())
+        return r.submit(flowpicks_key(day, part), "flowpicks", {"day": str(day), "workers": w}, force=force)
     # The same job keys as the pages, so a visitor arriving meanwhile shares the run instead of starting another.
     if t.name.startswith("acc_"):
         reached = _acc_reached(t)

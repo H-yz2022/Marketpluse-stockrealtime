@@ -4,6 +4,10 @@ Every change to the website and the desktop app, newest first (from the project'
 
 ## 2026-11-23
 
+- **资金选股 / 热点题材 live in the morning; patient East Money requests; sample mode fixed**
+  - 资金选股 and 热点题材 now update during the session (from 09:45, every 30 minutes, also scheduled at 10:00-14:30) and are fixed once after the close. Today's volume is projected to a full day with the intraday curve measured over 18-23 Nov (29% of a day's volume by 10:00; a straight line would overstate it 2.3 times). If East Money refuses most money-flow requests mid-session, the last good list stays.
+  - Money flow is fetched patiently (eastmoney.gather): a refused batch is retried instead of pausing East Money for 10 minutes, which had sent 低位吸筹's whole flow to Sina (2,600 requests, about a minute; now 16 s from East Money when it answers). 资金选股's gaps after the close come from East Money's own daily history instead of Sina, whose order buckets differ (贵州茅台 23 Nov: Sina -832M, East Money +469M).
+  - Sample mode: the saved dataset (30 Sep) had aged out of the screener's 70-day window and the screener failed; date windows now count from the sample's own date, and an all-failed history lookup no longer crashes the screener.
 - **Past sessions on every front-page screen: the last 20, older ones shrunk**
   - 主力暗中吸筹, 低位吸筹, 长线, 资金选股 and 热点题材 each get a session picker. Each keeps 20 sessions (about four weeks): the last week in full, older ones shrunk once to what their page shows (the stocks that met or nearly met the conditions, plus the closest others) at single precision. 资金选股 keeps the stocks with a 3- or 5-day inflow and records the session's leading themes before shrinking. On today's results the five screens take about 8 MB; only the session opened is loaded.
 - **资金选股 and 热点题材: two money-flow screens, updated daily; concept members weekly**

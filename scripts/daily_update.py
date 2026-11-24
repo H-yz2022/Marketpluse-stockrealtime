@@ -156,7 +156,8 @@ def main() -> int:
 
     def money_flow():
         day = checkpoint.session_day(cn_snapshot())
-        if flowpicks.load(day) is not None:
+        saved = flowpicks.load(day)
+        if saved is not None and saved["final"]:
             return f"{day} already saved"
         res = flowpicks.run(day, cn_snapshot(), workers=args.workers)
         hits = int(flowpicks.apply_basic(res["frame"]).passes.sum())

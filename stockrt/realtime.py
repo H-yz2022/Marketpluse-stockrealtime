@@ -8,7 +8,7 @@ import threading
 import numpy as np
 import pandas as pd
 
-from . import http, storage
+from . import http, sample, storage
 from .sources import eastmoney, sina, tencent
 from .symbols import board, is_st, market
 
@@ -96,21 +96,27 @@ FLOW_CHUNK = 100                # symbols per East Money batch request
 def main_flow(codes: list[str], workers: int = 8) -> pd.DataFrame:
     """Today's main-fund (large + extra-large order) net inflow per symbol.
 
-    East Money's batch endpoint is tried first, 100 symbols per request and several requests at once (covers HK).
-    Whatever it answers is kept; only the A-shares it didn't answer for (a refused or empty request) go to Sina,
-    one request per symbol. Before 19 Nov 2026 one refused batch sent every symbol to Sina (3,800 requests, about
-    2.5 minutes for 低位吸筹). The `source` column says which one answered each row.
+    East Money's batch endpoint is tried first, 100 symbols per request (covers HK), patiently: a refused batch is
+    retried rather than pausing East Money for 10 minutes (eastmoney.gather). Whatever it answers is kept; only
+    the A-shares it didn't answer for go to Sina, one request per symbol. Before 24 Nov 2026 one refused batch
+    paused East Money and sent nearly every stock to Sina (2,600 requests, about a minute for 低位吸筹). The
+    `source` column says which one answered each row.
     """
     cols = ["code", "main_net", "main_net_ratio", "xl_net", "l_net", "retail_net", "source"]
     if not codes:
         return pd.DataFrame(columns=cols)
     chunks = [codes[i:i + FLOW_CHUNK] for i in range(0, len(codes), FLOW_CHUNK)]
     parts = []
-    for res in http.pmap(eastmoney.main_flow_batch, chunks, workers=6):
-        if isinstance(res, pd.DataFrame) and not res.empty and res["main_net"].notna().any():
-            parts.append(res.reindex(columns=cols))
-        elif isinstance(res, Exception):
-            log.info("eastmoney flow batch unavailable (%s)", res)
+    if sample.is_sample():
+        for res in http.pmap(eastmoney.main_flow_batch, chunks, workers=6):
+            if isinstance(res, pd.DataFrame) and not res.empty:
+                parts.append(res.reindex(columns=cols))
+    else:
+        rows, refused = eastmoney.gather(chunks, eastmoney.flow_rows, probe_tries=2)   # Sina covers the rest
+        if rows:
+            parts.append(pd.DataFrame(rows).reindex(columns=cols))
+        if refused:
+            log.info("eastmoney refused %d of %d flow batches", len(refused), len(chunks))
     have = {c for p in parts for c in p["code"]}
     missing = [c for c in codes if c not in have and market(c) == "CN"]
     if missing:

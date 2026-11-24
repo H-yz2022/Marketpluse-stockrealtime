@@ -223,6 +223,10 @@ def trend_features(close: pd.Series) -> dict:
             "ma10_prev": float(ma10.iloc[-2]), "cross_days_ago": cross_days_ago}
 
 
+HISTORY_COLUMNS = ("ma5", "ma10", "ma5_prev", "ma10_prev", "cross_days_ago", "prev_volume", "projected_volume",
+                   "ret_5d")
+
+
 def _stage2(cands: pd.DataFrame, p: ScreenParams, progress: Callable[[float, str], None] | None) -> pd.DataFrame:
     quotes = {r["code"]: r for r in cands.to_dict("records")}
     done = [0]
@@ -236,11 +240,12 @@ def _stage2(cands: pd.DataFrame, p: ScreenParams, progress: Callable[[float, str
                 progress(done[0] / len(quotes), f"Daily history {done[0]}/{len(quotes)}")
 
     feats = [r for r in http.pmap(one, list(quotes), workers=8) if isinstance(r, dict)]
-    f = pd.DataFrame(feats)
-    if f.empty:
-        return cands.assign(history_ok=False)
+    f = pd.DataFrame(feats, columns=["code", "history_ok"]) if not feats else pd.DataFrame(feats)
     out = cands.merge(f, on="code", how="left")
     out["history_ok"] = out["history_ok"].fillna(False).astype(bool)
+    for col in HISTORY_COLUMNS:          # no history at all (every lookup failed): the rules read as unmet
+        if col not in out:
+            out[col] = np.nan
     return out
 
 

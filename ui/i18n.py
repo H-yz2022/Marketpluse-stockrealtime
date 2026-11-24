@@ -376,6 +376,9 @@ def group_name(name: str) -> str:
 NOTES += [
     (r"3- and 5-day money flow: (.+) \(of ([\d,]+) stocks above MA20\)\.",
      "近3日 / 近5日主力资金来源：{0}（共查询站上20日均线的 {1} 只股票）。"),
-    (r"Money flow unknown for ([\d,]+) stocks \(no answer from East Money or Sina\)\.",
-     "{0} 只股票的资金流向未知（东方财富与新浪均无响应）。"),
+    (r"Money flow unknown for ([\d,]+) stocks \(no answer from East Money(?: or Sina)?\)\.",
+     "{0} 只股票的资金流向未知（东方财富无响应）。"),
+    (r"Live as of (\S+): today's volume projected to a full day \(about (\d+)% of a day's volume is usually "
+     r"traded by now\); money flow is today's so far\.",
+     "实时，截至 {0}：今日成交量按全天估算（此时通常已成交全天约 {1}%）；资金流向为今日截至目前。"),
 ]

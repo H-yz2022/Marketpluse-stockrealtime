@@ -105,8 +105,8 @@ def dipbuy_key(day, bucket: str) -> tuple:
     return ("dipbuy", str(day), bucket)
 
 
-def flowpicks_key(day) -> tuple:
-    return ("flowpicks", str(day))
+def flowpicks_key(day, part: str = "close") -> tuple:
+    return ("flowpicks", str(day), part)
 
 
 def themes_key(day) -> tuple:
@@ -403,28 +403,35 @@ FP_AT = flowpicks.AT
 
 
 def _flowpicks_result() -> dict | None:
-    """The latest session's 资金选股 data: computed in the background after the close if it's missing; before
-    the close (or while it computes) the latest saved session."""
+    """The latest session's 资金选股 data: live during the session (recomputed in the background when opened, at
+    most every 30 minutes, from 09:45), fixed once after the close; before the first live run, the latest saved
+    session."""
     now = now_bj()
     day = checkpoint.latest_session_day("CN")
-    closed = day < now.date() or now.time() >= FP_AT
-    res = flowpicks.load(day) if closed else None
-    if res is None and closed:
-        job = _runner().submit(flowpicks_key(day), "flowpicks", {"day": str(day), "workers": checkpoint.WORKERS},
-                               front=True)
+    today = day == now.date()
+    can_run = not today or now.time() >= flowpicks.LIVE_FROM
+    res = flowpicks.load(day)
+    if can_run and flowpicks.stale(res, now):
+        part = flowpicks.bucket(now) if today else "close"
+        job = _runner().submit(flowpicks_key(day, part), "flowpicks",
+                               {"day": str(day), "workers": checkpoint.WORKERS}, front=True)
         if job.active or job.state == "failed":
-            job_card(job, t("资金选股 · 正在计算收盘数据", "Money-flow picks · computing on the closing data"),
+            job_card(job, t("资金选股 · 正在计算", "Money-flow picks · computing"),
                      t("近3日 / 近5日主力资金、均线、成交量与市值",
-                       "3- and 5-day main-fund flow, moving average, volume and market value"), typical=120)
-        res = flowpicks.load(day)
+                       "3- and 5-day main-fund flow, moving average, volume and market value"), typical=90)
+        res = flowpicks.load(day) or res
     if res is None:
-        older = [d for d in flowpicks.days() if d < day or not closed]
+        older = [d for d in flowpicks.days() if d < day]
         res = flowpicks.load(older[0]) if older else None
-        if not closed:
-            st.caption(t(f":material/schedule: 今日名单在收盘后（北京时间 15:08 起，{_until(FP_AT, now)}）出现。"
-                         + ("先显示最近保存的交易日。" if res else ""),
-                         f":material/schedule: Today's list comes after the close, from 15:08 Beijing "
-                         f"({_until(FP_AT, now)})." + (" Showing the latest saved session." if res else "")))
+        if today and not can_run:
+            st.caption(t("今日第一次实时计算在北京时间 09:45 之后（开盘 15 分钟）。" + ("先显示最近保存的交易日。" if res else ""),
+                         "Today's first live run is after 09:45 Beijing (15 minutes of trading)."
+                         + (" Showing the latest saved session." if res else "")))
+    if res is not None:
+        when = t("收盘后固定", "fixed after the close") if res.get("final", True) else \
+            t(f"实时，截至北京时间 {(res.get('computed') or '')[-5:]}（每 30 分钟更新）",
+              f"live, as of {(res.get('computed') or '')[-5:]} Beijing (updated every 30 minutes)")
+        st.caption(f":material/schedule: {fday(res['day'])} · {when}")
     return res
 
 
@@ -460,9 +467,10 @@ def flowpicks_section() -> None:
     with st.container(border=True):
         st.markdown(f"**{t(flowpicks.QUERY_BASIC_ZH, flowpicks.QUERY_BASIC_EN)}**")
         st.markdown(t(flowpicks.QUERY_ADV_ZH, flowpicks.QUERY_ADV_EN))
-        st.caption(t("每个交易日收盘后（北京时间 15:08 起）用最新数据重新计算；可在下表修改任何阈值。",
-                     "Recomputed on the latest data after every session's close (from 15:08 Beijing); edit any "
-                     "threshold in the tables below."))
+        st.caption(t("交易时间内实时计算（09:45 起，每 30 分钟更新），收盘后（北京时间 15:08 起）计算一次并固定；"
+                     "可在下表修改任何阈值。",
+                     "Live during the session (from 09:45, updated every 30 minutes), computed once and fixed after "
+                     "the close (from 15:08 Beijing); edit any threshold in the tables below."))
     if sample.is_sample():
         st.caption(t(*LIVE_ONLY))
         return
@@ -518,9 +526,11 @@ def hot_section() -> None:
                  anchor=False)
     with st.container(border=True):
         st.markdown(f"**{t(flowpicks.QUERY_HOT_ZH, flowpicks.QUERY_HOT_EN)}**")
-        st.caption(t("资金、成交量与均线每个交易日收盘后（北京时间 15:08 起）用最新数据更新；概念成分股每周更新一次。",
-                     "Money flow, volume and the moving average are updated on the latest data after every session's "
-                     "close (from 15:08 Beijing); which companies belong to each concept is refreshed weekly."))
+        st.caption(t("资金、成交量与均线在交易时间内实时更新（09:45 起，每 30 分钟），收盘后（15:08 起）固定；"
+                     "盘中今日成交量按全天估算。概念成分股每周更新一次。",
+                     "Money flow, volume and the moving average update live during the session (from 09:45, every 30 "
+                     "minutes) and are fixed after the close (from 15:08); during the session today's volume is "
+                     "projected to a full day. Which companies belong to each concept is refreshed weekly."))
     if sample.is_sample():
         st.caption(t(*LIVE_ONLY))
         return

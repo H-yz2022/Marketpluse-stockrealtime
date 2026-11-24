@@ -61,6 +61,75 @@ def main_flow_batch(codes: list[str]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def push_patient(path: str, params: dict) -> dict:
+    """Like _push, but with the normal retries and no 10-minute pause after a single refusal: for data a screen
+    depends on (the money flow itself), where East Money throttling a burst is worth waiting out."""
+    last: Exception | None = None
+    for host in PUSH_HOSTS:
+        try:
+            j = http.get(host + path, params=params, headers=HEADERS, timeout=8).json()
+            if j.get("data") is not None:
+                return j["data"]
+            last = ValueError("empty data")
+        except (http.SourceUnavailable, ValueError) as e:
+            last = e
+    raise http.SourceUnavailable(f"eastmoney {path}: {last}")
+
+
+def gather(chunks: list[list[str]], fn, workers: int = 3, pause: float = 2.0, probe_tries: int = 3,
+           sleep=None) -> tuple[list[dict], list[list[str]]]:
+    """Run `fn(chunk) -> rows` over batches of symbols, patiently. The first batch goes alone as a probe, tried up
+    to `probe_tries` times with growing pauses (a throttled burst often clears in seconds); if East Money still
+    refuses it, it is refusing this server right now, and every batch comes back as refused (no point waiting on
+    the rest). Otherwise the others run a few at a time, and those refused are tried once more, one at a time
+    with a short pause. Returns (rows, batches still refused)."""
+    import time
+
+    sleep = sleep or time.sleep
+    if not chunks:
+        return [], []
+    rows = None
+    for attempt in range(max(probe_tries, 1)):
+        if attempt:
+            sleep(pause * 2 ** attempt)                     # 4 s, then 8 s with the default pause
+        try:
+            rows = list(fn(chunks[0]))
+            break
+        except http.SourceUnavailable:
+            continue
+    if rows is None:
+        return [], list(chunks)
+    refused = []
+    for chunk, r in zip(chunks[1:], http.pmap(fn, chunks[1:], workers=workers)):
+        if isinstance(r, list):
+            rows += r
+        else:
+            refused.append(chunk)
+    still = []
+    for chunk in refused:
+        sleep(pause)
+        try:
+            rows += fn(chunk)
+        except http.SourceUnavailable:
+            still.append(chunk)
+    return rows, still
+
+
+def flow_rows(chunk: list[str]) -> list[dict]:
+    """Today's main-fund flow for up to 100 symbols (main_flow_batch's rows, fetched patiently)."""
+    data = push_patient("/api/qt/ulist.np/get", {"fltt": 2, "secids": ",".join(em_secid(c) for c in chunk),
+                                                 "fields": "f12,f13,f14,f62,f184,f66,f72,f78,f84"})
+    rows = []
+    for d in data.get("diff") or []:
+        num = lambda k: d.get(k) if isinstance(d.get(k), (int, float)) else None  # noqa: E731, B023
+        if num("f62") is None:
+            continue
+        rows.append({"code": from_em_secid(f"{d['f13']}.{d['f12']}"), "main_net": num("f62"),
+                     "main_net_ratio": num("f184"), "xl_net": num("f66"), "l_net": num("f72"),
+                     "retail_net": (num("f78") or 0) + (num("f84") or 0), "source": "eastmoney"})
+    return rows
+
+
 def daily_flow(code: str, n: int = 10) -> pd.DataFrame:
     """Main-fund net inflow per session for the last `n` sessions (main = large + extra-large orders, the
     same definition as the batch endpoint) - used to backfill a past session.

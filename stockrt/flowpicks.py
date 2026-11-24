@@ -1,4 +1,4 @@
-"""资金选股 - two money-flow screens on the latest session, computed once a day after the close.
+"""资金选股 - two money-flow screens on the latest session: live during it, fixed after the close.
 
     基础版（快速筛选）：近5个交易日主力资金净流入，排除ST，股价站稳20日均线。
       进阶条件（剔除假信号）：近3个交易日主力资金净流入，大单净流入占比大于5%，流通市值50亿–300亿，
@@ -9,20 +9,24 @@
 How each condition is read (every threshold can be changed on the page):
 
     近5 / 近3日主力净流入   main-fund (large + extra-large orders) net inflow summed over the last 5 / 3 sessions,
-                          today included (East Money's 5日 / 3日主力净额; Sina's daily figures summed for the
-                          stocks East Money doesn't answer for)
+                          today included - during the session, today so far (East Money's 5日 / 3日主力净额; after
+                          the close, the stocks its batch request doesn't answer for are summed from East Money's
+                          own daily history - the same definition. Sina's figures are not mixed in: its order
+                          buckets differ, e.g. 贵州茅台 on 23 Nov 2026: Sina -832M, East Money +469M)
     大单净流入占比 > 5%     that 3-day main-fund net inflow as a share of the 3 sessions' turnover (East Money's
                           3日主力净占比)
     站稳20日均线           today's close above the average of the last 20 closes (today's included)
     流通市值               free-float market value at today's close
     近20日涨幅 < 20%        today's close against the close 20 sessions ago (forward-adjusted)
-    近3日成交量放大 > 50%    volume of the last 3 sessions against the 3 sessions before them
+    近3日成交量放大 > 50%    volume of the last 3 sessions against the 3 sessions before them; during the session
+                          today's volume is projected to a full day with the measured intraday curve (VOLUME_CURVE)
     所属概念               the company is in one of the chosen concepts (stockrt.themes, refreshed weekly)
 
-Every condition except the theme moves with each session, so the screen is recomputed every trading day (from
-15:08 Beijing). Price, moving-average, volume and market-value measures are kept for every non-ST stock trading
-that day; money flow is fetched for the stocks above their 20-day average (both versions require it), so the
-thresholds re-filter instantly and the theme ranking covers the whole market.
+Every condition except the theme moves with each session: during it the screen is recomputed every half hour
+(10:00 to 14:30, or when opened, at most every 30 minutes), and once more after the close (from 15:08 Beijing),
+which is the session's fixed result. Price, moving-average, volume and market-value measures are kept for every
+non-ST stock trading that day; money flow is fetched for the stocks above their 20-day average (both versions
+require it), so the thresholds re-filter instantly and the theme ranking covers the whole market.
 """
 
 from __future__ import annotations
@@ -52,8 +56,23 @@ QUERY_HOT_ZH = ("热点题材共振版（龙头板块内选股）：所属概念
 QUERY_HOT_EN = ("Hot-theme convergence (picks inside the leading sectors): in a chosen concept / theme (AI "
                 "computing power included), main-fund net inflow over the last 3 trading days, volume up more than "
                 "50% over the last 3 trading days, price holding above the 20-day moving average.")
-AT = time(15, 8)
+AT = time(15, 8)            # the fixed after-close run
+CLOSE = time(15, 0)
+LIVE_FROM = time(9, 45)     # first live run: 15 minutes of trading
+REFRESH_MIN = 30            # minutes between live recomputes
 FLOW_CHUNK = 100
+# Share of the day's volume traded after N minutes of continuous trading (A-shares): the average of the Shanghai
+# Composite, Shenzhen Component, CSI 300 and ChiNext indices over 18-23 Nov 2026 (spread ±2-5 points). Volume is
+# front-loaded - 29% by 10:00 against 12.5% of the time - so a straight-line projection would overstate a
+# morning's full-day volume about 2.3 times.
+VOLUME_CURVE = ((0, 0.0), (15, 0.191), (30, 0.289), (60, 0.414), (90, 0.503), (120, 0.586), (150, 0.698),
+                (180, 0.780), (210, 0.854), (240, 1.0))
+
+
+def day_share(elapsed_min: float) -> float:
+    """The share of a normal day's volume traded after `elapsed_min` continuous-trading minutes."""
+    xs, ys = zip(*VOLUME_CURVE)
+    return float(max(np.interp(elapsed_min, xs, ys), 0.05))
 
 
 @dataclass
@@ -115,74 +134,61 @@ def measures(code: str, day: date, price: float, prev_close: float | None, volum
     return out
 
 
-def flows(codes: list[str], day: date, amount3: dict[str, float], workers: int = 8) -> pd.DataFrame:
-    """3- and 5-session main-fund net inflow and the 3-session net share of turnover. East Money's batch figures
-    first (100 stocks a request); whatever it doesn't answer for goes to Sina's daily flow, summed here (its share
-    is worked out against the turnover from the history panel)."""
-    from .sources import eastmoney, sina
+def flows(codes: list[str], day: date, amount3: dict[str, float], workers: int = 8,
+          live: bool = False) -> pd.DataFrame:
+    """3- and 5-session main-fund net inflow and the 3-session net share of turnover, all East Money's definition.
+    Its batch figures first (100 stocks a request, fetched patiently - eastmoney.gather). After the close, the
+    stocks it still doesn't answer for are summed from its per-stock daily history (another server, same figures:
+    the 3-day number is exactly the last 3 daily ones). During the session that history stops at yesterday, so
+    those stocks stay unknown rather than mixing in another source's figures."""
+    from .sources import eastmoney
 
     cols = ["code", "main_net3", "main_ratio3", "main_net5", "main_ratio5", "flow_source"]
 
     def batch(chunk: list[str]) -> list[dict]:
-        # Not eastmoney._push: that pauses the host for 10 minutes after one refusal (right for optional extras);
-        # here the flow is the screen, so refused batches are retried below.
-        params = {"fltt": 2, "secids": ",".join(em_secid(c) for c in chunk), "fields": "f12,f13,f267,f268,f164,f165"}
-        last: Exception | None = None
-        for host in eastmoney.PUSH_HOSTS:
-            try:
-                data = http.get(host + "/api/qt/ulist.np/get", params=params, headers=eastmoney.HEADERS,
-                                timeout=8).json().get("data") or {}
-                break
-            except (http.SourceUnavailable, ValueError) as e:
-                last = e
-        else:
-            raise http.SourceUnavailable(f"eastmoney flow batch: {last}")
+        data = eastmoney.push_patient("/api/qt/ulist.np/get", {
+            "fltt": 2, "secids": ",".join(em_secid(c) for c in chunk), "fields": "f12,f13,f267,f268,f164,f165"})
         num = lambda d, k: d.get(k) if isinstance(d.get(k), (int, float)) else None  # noqa: E731
         return [{"code": from_em_secid(f"{d['f13']}.{d['f12']}"), "main_net3": num(d, "f267"),
                  "main_ratio3": num(d, "f268"), "main_net5": num(d, "f164"), "main_ratio5": num(d, "f165"),
                  "flow_source": "eastmoney"} for d in data.get("diff") or [] if num(d, "f267") is not None]
 
-    rows: list[dict] = []
     chunks = [codes[i:i + FLOW_CHUNK] for i in range(0, len(codes), FLOW_CHUNK)]
-    refused = []
-    for chunk, r in zip(chunks, http.pmap(batch, chunks, workers=3)):
-        if isinstance(r, list):
-            rows += r
-        else:
-            refused.append(chunk)
-    for chunk in refused:                     # East Money throttles bursts: once more, one at a time
-        time_mod.sleep(2)
-        try:
-            rows += batch(chunk)
-        except http.SourceUnavailable:
-            pass
+    rows, _ = eastmoney.gather(chunks, batch, sleep=time_mod.sleep)
     have = {r["code"] for r in rows}
 
     def one(code: str) -> dict | None:
-        f = sina.daily_flow(code, 5)
-        if f.empty or f["date"].iloc[0] != day:
+        f = eastmoney.daily_flow(code, 6)
+        if f.empty or f["date"].iloc[-1] != day:
             return None                                   # not up to the session: unknown rather than wrong
-        n3 = float(f["main_net"].head(3).sum())
+        n3 = float(f["main_net"].tail(3).sum())
         a3 = amount3.get(code)
         return {"code": code, "main_net3": n3, "main_ratio3": 100 * n3 / a3 if a3 else None,
-                "main_net5": float(f["main_net"].head(5).sum()) if len(f) >= 5 else None, "main_ratio5": None,
-                "flow_source": "sina"}
+                "main_net5": float(f["main_net"].tail(5).sum()) if len(f) >= 5 else None, "main_ratio5": None,
+                "flow_source": "eastmoney history"}
 
     missing = [c for c in codes if c not in have]
-    rows += [r for r in http.pmap(one, missing, workers=workers) if isinstance(r, dict)]
+    if missing and not live:
+        rows += [r for r in http.pmap(one, missing, workers=workers) if isinstance(r, dict)]
     return pd.DataFrame(rows, columns=cols).drop_duplicates("code")
 
 
 def run(day: date, snap: pd.DataFrame, progress: Callable[[float, str], None] | None = None,
         workers: int = 12, now: datetime | None = None) -> dict:
-    """Screen the session `day` from its closing snapshot and save it."""
-    from .calendar import now_bj
+    """Screen the session `day` from a snapshot - live during the session, the closing one after it - and save it."""
+    from .calendar import now_bj, status
 
     now = now or now_bj()
     notes: list[str] = []
+    live = day == now.date() and now.time() < CLOSE
     snap = snap[pd.to_datetime(snap["time"]).dt.date == day]
     base = snap[(snap["price"] > 0) & (snap["volume"].fillna(0) > 0)].copy()
     base = base[~base["name"].fillna("").map(is_st)]
+    if live:
+        share = day_share(status("CN", now).elapsed_min)
+        base["volume"] = base["volume"] / share           # today's volume as a projected full day
+        notes.append(f"Live as of {now:%H:%M}: today's volume projected to a full day (about {100 * share:.0f}% "
+                     "of a day's volume is usually traded by now); money flow is today's so far.")
     if progress:
         progress(0.02, f"资金选股: {len(base)} non-ST stocks trading")
     recs = base[["code", "price", "prev_close", "volume", "amount"]].to_dict("records")
@@ -200,20 +206,45 @@ def run(day: date, snap: pd.DataFrame, progress: Callable[[float, str], None] | 
     if progress:
         progress(0.55, f"近3日 / 近5日主力资金 · Main-fund flow for {len(above)} stocks above MA20")
     amount3 = dict(zip(d["code"], d.get("amount3", pd.Series(np.nan, index=d.index))))
-    f = flows(above, day, amount3, workers=workers)
+    f = flows(above, day, amount3, workers=workers, live=live)
+    if live and above and len(f) < 0.5 * len(above):
+        # A live list with most money flow unknown would show nothing - keep the last good one (the page falls
+        # back to it) and let the scheduler retry in 10 minutes. East Money throttles some servers for a while.
+        raise http.SourceUnavailable(f"East Money answered for only {len(f)} of {len(above)} stocks' money flow; "
+                                     "keeping the last list and retrying shortly")
     d = d.merge(f, on="code", how="left")
     src = " · ".join(f"{s} {n:,}" for s, n in f["flow_source"].value_counts().items()) if not f.empty else "none"
     notes.append(f"3- and 5-day money flow: {src} (of {len(above):,} stocks above MA20).")
     if len(f) < 0.9 * len(above):
-        notes.append(f"Money flow unknown for {len(above) - len(f):,} stocks (no answer from East Money or Sina).")
+        notes.append(f"Money flow unknown for {len(above) - len(f):,} stocks (no answer from East Money).")
     keep = ["code", "name", "price", "pct_change", "ma20", "above_ma20_pct", "chg20", "chg3", "vol3_change",
             "main_net3", "main_ratio3", "main_net5", "main_ratio5", "float_mcap", "turnover_rate", "amount",
             "flow_source"]
     frame = d.reindex(columns=keep)
     res = {"day": day, "frame": frame, "notes": notes, "checked": len(base), "flow_checked": len(above),
-           "computed": now.strftime("%Y-%m-%d %H:%M"), "hot": hot_ranking(frame)}
+           "computed": now.strftime("%Y-%m-%d %H:%M"), "hot": hot_ranking(frame), "final": not live}
     save(res)
     return res
+
+
+def stale(res: dict | None, now: datetime) -> bool:
+    """Whether today's saved result should be recomputed: none yet, or a live one older than REFRESH_MIN (or from
+    before the close, once the session is over)."""
+    if res is None:
+        return True
+    if res.get("final", True):
+        return False
+    if now.time() >= CLOSE or res["day"] < now.date():
+        return True
+    age = now.replace(tzinfo=None) - datetime.strptime(res["computed"], "%Y-%m-%d %H:%M")
+    return age > timedelta(minutes=REFRESH_MIN)
+
+
+def bucket(now: datetime) -> str:
+    """The job key's time part: one live run per half hour, one after the close."""
+    if now.time() >= CLOSE:
+        return "close"
+    return f"{now.hour:02d}{now.minute // REFRESH_MIN * REFRESH_MIN:02d}"
 
 
 # --------------------------------------------------------------------------- the conditions
@@ -267,7 +298,7 @@ def save(res: dict):
     base = _base(res["day"])
     base.parent.mkdir(parents=True, exist_ok=True)
     res["frame"].to_parquet(base.with_suffix(".parquet"), index=False, compression="zstd")
-    meta = {k: res.get(k) for k in ("notes", "checked", "flow_checked", "computed", "hot")}
+    meta = {k: res.get(k) for k in ("notes", "checked", "flow_checked", "computed", "hot", "final")}
     base.with_suffix(".json").write_text(json.dumps({"day": res["day"].isoformat(), **meta}, ensure_ascii=False),
                                          encoding="utf-8")
     return base
@@ -281,7 +312,8 @@ def load(day: date) -> dict | None:
         else {}
     return {"day": day, "frame": pd.read_parquet(base.with_suffix(".parquet")), "notes": meta.get("notes", []),
             "checked": meta.get("checked"), "flow_checked": meta.get("flow_checked"), "computed": meta.get("computed"),
-            "hot": meta.get("hot"), "compact": bool(meta.get("compact"))}
+            "hot": meta.get("hot"), "compact": bool(meta.get("compact")),
+            "final": meta.get("final") is not False}
 
 
 def days() -> list[date]:

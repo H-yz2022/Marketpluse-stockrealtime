@@ -18,7 +18,7 @@ import functools
 import json
 import os
 from collections.abc import Callable
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -127,6 +127,12 @@ def _daily(code: str, start: date | None = None, end: date | None = None, fq: st
 
     df = _daily_for(code).reindex(columns=DAILY_COLUMNS)
     df["date"] = pd.to_datetime(df["date"])
+    # Callers ask for windows relative to today ("the last 70 days"); in the sample, today is its own date. Without
+    # this shift the sample aged out: by late Nov 2026 a 70-day window held too few bars and the screener failed.
+    from .calendar import now_bj
+
+    lag = timedelta(days=max((now_bj().date() - date.fromisoformat(meta().get("as_of", "2000-01-01"))).days, 0))
+    start, end = (start - lag if start else None), (end - lag if end else None)
     if start:
         df = df[df["date"] >= pd.Timestamp(start)]
     if end:

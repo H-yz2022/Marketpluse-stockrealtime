@@ -111,9 +111,8 @@ def test_hot_theme_conditions_and_leading_themes():
     assert h.iloc[1]["up_share"] == pytest.approx(100 / 3)
 
 
-def test_flows_retry_refused_batches_then_ask_sina(monkeypatch):
-    from stockrt.sources import sina
-
+def _em_batches(monkeypatch, skip=("1.600009",), refuse_first=True):
+    """East Money's batch endpoint: refuses the first request once, then answers (except for `skip`)."""
     calls = {"n": 0}
 
     class R:
@@ -125,19 +124,87 @@ def test_flows_retry_refused_batches_then_ask_sina(monkeypatch):
 
     def get(url, params=None, **k):
         calls["n"] += 1
-        if calls["n"] == 1:
+        if refuse_first and calls["n"] == 1:
             raise http.SourceUnavailable("throttled")
         return R({"diff": [{"f12": s.split(".")[1], "f13": int(s.split(".")[0]), "f267": 1e6, "f268": 6.0,
-                            "f164": 2e6, "f165": 4.0} for s in params["secids"].split(",") if s != "1.600009"]})
+                            "f164": 2e6, "f165": 4.0} for s in params["secids"].split(",") if s not in skip]})
 
     monkeypatch.setattr(http, "get", get)
     monkeypatch.setattr(flowpicks.time_mod, "sleep", lambda s: None)
-    monkeypatch.setattr(sina, "daily_flow", lambda c, n: pd.DataFrame(
-        {"date": [date(2026, 11, 20), date(2026, 11, 19), date(2026, 11, 18)], "main_net": [1e6, 2e6, 3e6]}))
+    return calls
+
+
+def test_flows_after_the_close_fill_gaps_from_east_moneys_own_history(monkeypatch):
+    from stockrt.sources import eastmoney, sina
+
+    _em_batches(monkeypatch)
+    hist = pd.DataFrame({"date": [date(2026, 11, d) for d in (16, 17, 18, 19, 20)],
+                         "main_net": [5e6, 4e6, 3e6, 2e6, 1e6]})
+    monkeypatch.setattr(eastmoney, "daily_flow", lambda c, n: hist)
+    monkeypatch.setattr(sina, "daily_flow", lambda *a: pytest.fail("Sina's buckets differ: never mixed in"))
     f = flowpicks.flows(["sh600000", "sh600009"], date(2026, 11, 20), {"sh600009": 1e8}).set_index("code")
     assert f.loc["sh600000", "flow_source"] == "eastmoney" and f.loc["sh600000", "main_net3"] == 1e6
-    assert f.loc["sh600009", "flow_source"] == "sina" and f.loc["sh600009", "main_net3"] == 6e6
+    assert f.loc["sh600009", "flow_source"] == "eastmoney history"
+    assert f.loc["sh600009", "main_net3"] == 6e6 and f.loc["sh600009", "main_net5"] == 15e6   # last 3 / last 5
     assert f.loc["sh600009", "main_ratio3"] == pytest.approx(6.0)
+    stale_hist = hist.iloc[:-1]                                     # history not yet up to the session: unknown
+    monkeypatch.setattr(eastmoney, "daily_flow", lambda c, n: stale_hist)
+    f = flowpicks.flows(["sh600000", "sh600009"], date(2026, 11, 20), {}).set_index("code")
+    assert "sh600009" not in f.index
+
+
+def test_flows_during_the_session_leave_gaps_unknown(monkeypatch):
+    from stockrt.sources import eastmoney
+
+    _em_batches(monkeypatch, refuse_first=False)
+    monkeypatch.setattr(eastmoney, "daily_flow", lambda *a: pytest.fail("history stops at yesterday mid-session"))
+    f = flowpicks.flows(["sh600000", "sh600009"], date(2026, 11, 20), {}, live=True).set_index("code")
+    assert list(f.index) == ["sh600000"]
+
+
+def test_intraday_volume_curve_and_live_refresh():
+    assert flowpicks.day_share(0) == pytest.approx(0.05)            # floor: never divide by ~0
+    assert flowpicks.day_share(30) == pytest.approx(0.289)          # 10:00 - not 30/240 = 12.5%
+    assert flowpicks.day_share(45) == pytest.approx((0.289 + 0.414) / 2)
+    assert flowpicks.day_share(240) == 1.0 and flowpicks.day_share(300) == 1.0
+    from datetime import datetime
+
+    live = {"day": date(2026, 11, 24), "final": False, "computed": "2026-11-24 10:03"}
+    assert not flowpicks.stale(live, datetime(2026, 11, 24, 10, 20))
+    assert flowpicks.stale(live, datetime(2026, 11, 24, 10, 40))     # older than 30 minutes
+    assert flowpicks.stale(live, datetime(2026, 11, 24, 15, 9))      # the session is over: the fixed run
+    assert flowpicks.stale(live, datetime(2026, 11, 25, 9, 0))       # yesterday's never got its fixed run
+    assert not flowpicks.stale({**live, "final": True}, datetime(2026, 11, 24, 15, 9))
+    assert flowpicks.stale(None, datetime(2026, 11, 24, 10, 0))
+    assert flowpicks.bucket(datetime(2026, 11, 24, 10, 47)) == "1030"
+    assert flowpicks.bucket(datetime(2026, 11, 24, 15, 9)) == "close"
+
+
+def test_a_live_run_projects_todays_volume_and_is_not_final(results, monkeypatch):
+    from datetime import datetime
+
+    from stockrt.calendar import BJ
+
+    seen = {}
+
+    def fake_measures(code, day, price, prev_close, volume, amount):
+        seen[code] = volume
+        return {"code": code, "above_ma20_pct": 1.0, "chg3": 1.0, "vol3_change": 0.0}
+
+    monkeypatch.setattr(flowpicks, "measures", fake_measures)
+    monkeypatch.setattr(flowpicks, "flows", lambda codes, day, a3, workers=8, live=False: pd.DataFrame(
+        {"code": codes, "main_net3": 1.0, "main_ratio3": 1.0, "main_net5": 1.0, "main_ratio5": 1.0,
+         "flow_source": "eastmoney"}))
+    day = date(2026, 11, 24)
+    snap = pd.DataFrame({"code": ["sh600000"], "name": ["X"], "price": [10.0], "prev_close": [9.9],
+                         "volume": [2890.0], "amount": [1e6], "time": [pd.Timestamp("2026-11-24 10:00", tz=BJ)],
+                         "pct_change": 1.0, "float_mcap": 1e10, "turnover_rate": 1.0})
+    res = flowpicks.run(day, snap, now=datetime(2026, 11, 24, 10, 0, tzinfo=BJ))
+    assert seen["sh600000"] == pytest.approx(10000.0)               # 2,890 by 10:00 = 28.9% of a day
+    assert not res["final"] and not flowpicks.load(day)["final"]
+    assert any(n.startswith("Live as of 10:00") for n in res["notes"])
+    res = flowpicks.run(day, snap, now=datetime(2026, 11, 24, 15, 9, tzinfo=BJ))
+    assert seen["sh600000"] == 2890.0 and flowpicks.load(day)["final"]
 
 
 def test_twenty_sessions_are_kept_older_ones_shrunk(results):
@@ -185,5 +252,26 @@ def test_scheduler_runs_the_screen_daily_and_the_concept_map_weekly(results, mon
     flowpicks.save({"day": day, "frame": frame(), "notes": [], "checked": 5, "flow_checked": 4, "computed": "x"})
     themes.save(pd.DataFrame({"code": ["a"], "board": ["X"], "board_code": ["BK1"]}), date(2026, 11, 16))
     assert scheduler._done(tasks["flowpicks"], day) and scheduler._done(tasks["themes"], day)
+    flowpicks.save({"day": day, "frame": frame(), "notes": [], "checked": 5, "flow_checked": 4,
+                    "computed": f"{day} 10:33", "final": False})
+    assert not scheduler._done(tasks["flowpicks"], day)              # a live result: the fixed run is still due
+    assert scheduler._done(tasks["fp_1030"], day) and not scheduler._done(tasks["fp_1100"], day)
     assert not scheduler._done(tasks["themes"], date(2026, 11, 23))   # a week later: download again
     assert tasks["flowpicks"].start == flowpicks.AT and not tasks["flowpicks"].intraday
+
+
+def test_a_live_run_without_money_flow_keeps_the_last_list(results, monkeypatch):
+    from datetime import datetime
+
+    from stockrt.calendar import BJ
+
+    monkeypatch.setattr(flowpicks, "measures", lambda code, *a: {"code": code, "above_ma20_pct": 1.0})
+    monkeypatch.setattr(flowpicks, "flows", lambda codes, day, a3, workers=8, live=False: pd.DataFrame(
+        columns=["code", "main_net3", "main_ratio3", "main_net5", "main_ratio5", "flow_source"]))
+    day = date(2026, 11, 24)
+    snap = pd.DataFrame({"code": ["sh600000"], "name": ["X"], "price": [10.0], "prev_close": [9.9],
+                         "volume": [100.0], "amount": [1e6], "time": [pd.Timestamp("2026-11-24 10:00", tz=BJ)],
+                         "pct_change": 1.0, "float_mcap": 1e10, "turnover_rate": 1.0})
+    with pytest.raises(http.SourceUnavailable):
+        flowpicks.run(day, snap, now=datetime(2026, 11, 24, 10, 0, tzinfo=BJ))
+    assert flowpicks.load(day) is None                               # nothing saved over the last good list
