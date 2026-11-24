@@ -4,9 +4,17 @@ only what East Money still won't answer goes to Sina."""
 from unittest.mock import patch
 
 import pandas as pd
+import pytest
 
 from stockrt import http, realtime
 from stockrt.sources import eastmoney
+
+
+@pytest.fixture(autouse=True)
+def fresh_refusal_memory():
+    realtime._em_refused_at[0] = 0.0
+    yield
+    realtime._em_refused_at[0] = 0.0
 
 
 def _rows(chunk):
@@ -53,3 +61,22 @@ def test_a_refused_first_batch_means_east_money_is_refusing_now():
     assert calls == ["sh600000", "sh600000"]                           # the probe, tried twice; not the others
     assert len(df) == 250 and set(df["source"]) == {"sina"}            # A-shares from Sina; HK has no fallback
     assert realtime.sources(pd.DataFrame()) == "none"
+
+
+def test_a_refusal_is_remembered_for_ten_minutes():
+    calls = []
+
+    def em(chunk):
+        calls.append(chunk[0])
+        raise http.SourceUnavailable("down")
+
+    sina = lambda c: {"code": c, "main_net": 1.0, "source": "sina"}  # noqa: E731
+    with patch.object(eastmoney, "flow_rows", side_effect=em), patch("time.sleep", lambda s: None), \
+            patch.object(realtime.sina, "money_flow", side_effect=sina):
+        realtime.main_flow(["sh600519"])
+        assert len(calls) == 2
+        df = realtime.main_flow(["sh600519"])                           # straight to Sina: no probe this time
+        assert len(calls) == 2 and df["source"].tolist() == ["sina"]
+        realtime._em_refused_at[0] -= realtime.EM_SKIP_AFTER_REFUSAL + 1   # ten minutes later: asked again
+        realtime.main_flow(["sh600519"])
+        assert len(calls) == 4

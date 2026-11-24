@@ -157,8 +157,11 @@ def main() -> int:
     def money_flow():
         day = checkpoint.session_day(cn_snapshot())
         saved = flowpicks.load(day)
-        if saved is not None and saved["final"]:
+        unknown = saved is not None and any(n.startswith("Money flow unknown") for n in saved["notes"])
+        if saved is not None and saved["final"] and not unknown:
             return f"{day} already saved"
+        # The website's run may have left some money flow unknown (East Money refuses it at times; it answers
+        # here): computed again, and the published copy replaces the website's.
         res = flowpicks.run(day, cn_snapshot(), workers=args.workers)
         hits = int(flowpicks.apply_basic(res["frame"]).passes.sum())
         return f"{day}: {hits} basic+advanced; " + " ".join(res["notes"])

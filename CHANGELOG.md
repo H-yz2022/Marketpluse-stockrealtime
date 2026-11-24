@@ -2,6 +2,11 @@
 
 Every change to the website and the desktop app, newest first (from the project's history; regenerate with `python scripts/changelog.py`).
 
+## 2026-11-24
+
+- **Money flow: remember an East Money refusal for 10 minutes; GitHub redoes lists with unknown flow**
+  - 低位吸筹 (and the other users of today's flow) skip East Money for 10 minutes after it refused a patient probe, instead of spending ~20 s proving it again on every run (24 Nov on the website: 80 s instead of 60 s). The daily GitHub job, where East Money answers, recomputes a fixed 资金选股 list the website saved with some money flow unknown (24 Nov: 80 of 530); the published copy replaces the website's.
+
 ## 2026-11-23
 
 - **资金选股 / 热点题材 live in the morning; patient East Money requests; sample mode fixed**

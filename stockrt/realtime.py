@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 
 import numpy as np
 import pandas as pd
@@ -91,6 +92,8 @@ def market_snapshot(mkt: str = "CN") -> pd.DataFrame:
 
 
 FLOW_CHUNK = 100                # symbols per East Money batch request
+EM_SKIP_AFTER_REFUSAL = 600     # seconds: once East Money refused a patient probe, Sina answers straight away
+_em_refused_at = [0.0]
 
 
 def main_flow(codes: list[str], workers: int = 8) -> pd.DataFrame:
@@ -111,10 +114,17 @@ def main_flow(codes: list[str], workers: int = 8) -> pd.DataFrame:
         for res in http.pmap(eastmoney.main_flow_batch, chunks, workers=6):
             if isinstance(res, pd.DataFrame) and not res.empty:
                 parts.append(res.reindex(columns=cols))
+    elif time.time() - _em_refused_at[0] < EM_SKIP_AFTER_REFUSAL:
+        log.info("eastmoney refused a probe in the last %d min: Sina only", EM_SKIP_AFTER_REFUSAL // 60)
     else:
+        # Proving East Money is refusing costs ~20 s of patient retries; the worker stays running between jobs,
+        # so a refusal is remembered for 10 minutes and the next runs go to Sina at once (24 Nov 2026: 低位吸筹
+        # took 80 s instead of 60 s on every run while East Money refused the website).
         rows, refused = eastmoney.gather(chunks, eastmoney.flow_rows, probe_tries=2)   # Sina covers the rest
         if rows:
             parts.append(pd.DataFrame(rows).reindex(columns=cols))
+        elif refused:
+            _em_refused_at[0] = time.time()
         if refused:
             log.info("eastmoney refused %d of %d flow batches", len(refused), len(chunks))
     have = {c for p in parts for c in p["code"]}
