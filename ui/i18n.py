@@ -257,6 +257,8 @@ NOTES = [
     (r"Main-fund flow unavailable for (\d+) stocks: they miss that rule\.", "{0} 只股票无主力资金数据，该条件视为未满足。"),
     (r"(.+) minute data unavailable - 'beats the market' could not be checked\.",
      "{0} 分时数据不可用，无法检查“强于大盘”。"),
+    (r"Today's main-fund flow from East Money for ([\d,]+) of the ([\d,]+) stocks that meet the other "
+     r"conditions or are one short\.", "今日主力资金（东方财富）：满足或只差一条其他条件的 {1} 只股票中有 {0} 只有数据。"),
     (r"Main-fund flow: (.+)\.", "主力资金数据来源：{0}。"),
     (r"10-day inflow: (.+)\.", "近10日资金流入来源：{0}。"),
     (r"Minute flow unavailable for (\d+) of (\d+) stocks\.", "{1} 只股票中有 {0} 只无分时资金数据。"),

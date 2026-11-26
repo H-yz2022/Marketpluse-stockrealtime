@@ -216,22 +216,32 @@ def run(day: date, snap: pd.DataFrame, progress: Callable[[float, str], None] | 
             progress(0.05 + 0.6 * min(i + 60, len(recs)) / max(len(recs), 1),
                      f"均线 · Moving averages {min(i + 60, len(recs))}/{len(recs)}")
     d = cands.merge(pd.DataFrame(rows, columns=["code"]) if not rows else pd.DataFrame(rows), on="code", how="left")
-    if progress:
-        progress(0.7, "今日主力资金 · Today's main-fund flow")
     codes = d["code"].tolist()
-    flow = realtime.main_flow(codes, workers=workers) if codes else pd.DataFrame(columns=["code", "main_net", "source"])
-    d = d.merge(flow[["code", "main_net"]], on="code", how="left")
-    flow_src = realtime.sources(flow)
-    if not flow.empty:
-        notes.append(f"Main-fund flow: {flow_src}.")
     if progress:
-        progress(0.85, "扣非净利润 · Net profit excl. non-recurring items")
+        progress(0.7, "扣非净利润 · Net profit excl. non-recurring items")
     try:
         prof = profit_ttm(codes, day) if codes else pd.DataFrame(columns=["code", "profit_ttm", "profit_basis"])
         d = d.merge(prof, on="code", how="left")
     except http.SourceUnavailable as e:
         d["profit_ttm"], d["profit_basis"] = np.nan, None
         notes.append(f"Financial reports unavailable ({e}); the profit condition can't be checked.")
+    # Money flow only for the stocks that meet the other conditions or are one short (page defaults): the only
+    # ones the inflow can decide. On 26 Nov 2026 that was a fraction of the 3,352 shortlisted - fewer requests,
+    # so East Money refuses less often.
+    near = flow_candidates(d)
+    if progress:
+        progress(0.8, f"今日主力资金 · Today's main-fund flow for {len(near)} stocks")
+    flow = realtime.main_flow(near, workers=workers) if near else pd.DataFrame(columns=["code", "main_net", "source"])
+    d = d.merge(flow[["code", "main_net"]], on="code", how="left")
+    flow_src = realtime.sources(flow)
+    notes.append(f"Today's main-fund flow from East Money for {len(flow):,} of the {len(near):,} stocks that meet the "
+                 "other conditions or are one short.")
+    if near and len(flow) < len(near):
+        if not (day < now.date() or now.time() >= CLOSE) and len(flow) < 0.5 * len(near):
+            # Live, and East Money refused most of it: keep the last list (the page falls back to it); retried soon.
+            raise http.SourceUnavailable(f"East Money answered for only {len(flow)} of {len(near)} stocks' money flow;"
+                                         " keeping the last list and retrying shortly")
+        notes.append(f"Money flow unknown for {len(near) - len(flow):,} stocks (no answer from East Money).")
     keep = ["code", "name", "price", "pct_change", "drop5", "drop5_rough", "main_net", "ma20", "ma60", "ma120",
             "above_ma20_pct", "above_ma60_pct", "above_ma120_pct", "profit_ttm", "profit_basis", "turnover_rate",
             "float_mcap", "amount"]
@@ -240,6 +250,19 @@ def run(day: date, snap: pd.DataFrame, progress: Callable[[float, str], None] | 
            "computed": now.strftime("%Y-%m-%d %H:%M"), "final": final, "flow_sources": flow_src}
     save(res)
     return res
+
+
+def flow_candidates(d: pd.DataFrame, p: Params | None = None) -> list[str]:
+    """The stocks whose money flow can decide the result: every condition except the inflow met, or all but one
+    (with the page's default thresholds)."""
+    p = p or Params()
+    if d.empty:
+        return []
+    drop = d["drop5"].fillna(d["drop5_rough"]) if "drop5_rough" in d else d["drop5"]
+    ok = pd.DataFrame({"drop": drop <= -p.drop5_min, "ma": d.get("above_ma60_pct", np.nan) > 0,
+                       "profit": d.get("profit_ttm", np.nan) > p.profit_min_m * 1e6,
+                       "change": d.get("pct_change", np.nan) < p.change_max}).fillna(False)
+    return d.loc[ok.sum(axis=1) >= ok.shape[1] - 1, "code"].tolist()
 
 
 def apply(frame: pd.DataFrame, p: Params | None = None) -> pd.DataFrame:

@@ -674,10 +674,8 @@ def past_flows(codes: list[str], day: date, progress=None) -> tuple[dict, dict]:
     """A past session's end-of-day main-fund net inflow per stock.
 
     East Money's daily history first, one stock at a time (it drops connections under load - and it is the
-    same definition as the live batch endpoint). If it keeps refusing, Sina's history covers the rest
-    (its buckets differ a little; the session's notes say how many came from each)."""
-    from .sources import sina
-
+    same definition as the live batch endpoint). Stocks it doesn't answer for stay unknown (Sina's history is no
+    longer used: its figures measure something else - see realtime.main_flow)."""
     flows: dict[str, float] = {}
     sources: dict[str, str] = {}
     fails = 0
@@ -695,12 +693,8 @@ def past_flows(codes: list[str], day: date, progress=None) -> tuple[dict, dict]:
             flows[c], sources[c] = float(hit["main_net"].iloc[0]), "eastmoney"
         if progress and i % 20 == 0:
             progress(i / max(len(codes), 1), f"Main-fund flow {len(flows)}/{len(codes)}")
-    todo = [c for c in codes if c not in flows]
-    for c, res in zip(todo, http.pmap(lambda c: sina.daily_flow(c, 10), todo, workers=4)):
-        if isinstance(res, pd.DataFrame) and not res.empty:
-            hit = res[res["date"] == day]
-            if not hit.empty:
-                flows[c], sources[c] = float(hit["main_net"].iloc[0]), "sina"
+    # No Sina fallback: its daily figure measures something else (贵州茅台 on 23 Nov 2026: Sina -832M, East Money
+    # +469M); a stock East Money's history doesn't answer for stays unknown and misses the money-flow rule.
     return flows, sources
 
 

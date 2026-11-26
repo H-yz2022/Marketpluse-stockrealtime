@@ -289,6 +289,9 @@ def run(snap: pd.DataFrame, p: ScreenParams, bench_pct: float | None,
         if not flow.empty:
             cands = cands.merge(flow[["code", "main_net", "main_net_ratio", "source"]].rename(
                 columns={"source": "flow_source"}), on="code", how="left")
+            unknown = len(alive) - int(alive["code"].isin(flow["code"]).sum())
+            if unknown:
+                notes.append(f"Main-fund flow unavailable for {unknown} stocks: they miss that rule.")
         else:
             cands["main_net"] = np.nan
             notes.append("Money-flow sources unavailable - 'main funds inflow' could not be checked.")

@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 
 import numpy as np
 import pandas as pd
 
 from . import http, sample, storage
 from .sources import eastmoney, sina, tencent
-from .symbols import board, is_st, market
+from .symbols import board, is_st
 
 log = logging.getLogger(__name__)
 
@@ -92,50 +91,30 @@ def market_snapshot(mkt: str = "CN") -> pd.DataFrame:
 
 
 FLOW_CHUNK = 100                # symbols per East Money batch request
-EM_SKIP_AFTER_REFUSAL = 600     # seconds: once East Money refused a patient probe, Sina answers straight away
-_em_refused_at = [0.0]
 
 
 def main_flow(codes: list[str], workers: int = 8) -> pd.DataFrame:
-    """Today's main-fund (large + extra-large order) net inflow per symbol.
+    """Today's main-fund (large + extra-large order) net inflow per symbol - East Money's figure only.
 
-    East Money's batch endpoint is tried first, 100 symbols per request (covers HK), patiently: a refused batch is
-    retried rather than pausing East Money for 10 minutes (eastmoney.gather). Whatever it answers is kept; only
-    the A-shares it didn't answer for go to Sina, one request per symbol. Before 24 Nov 2026 one refused batch
-    paused East Money and sent nearly every stock to Sina (2,600 requests, about a minute for 低位吸筹). The
-    `source` column says which one answered each row.
+    Fetched 100 symbols per request, patiently (eastmoney.gather: refused batches are retried). The symbols East
+    Money still doesn't answer for are left out - unknown, so a rule that needs them reads as unmet. Until 26 Nov
+    2026 Sina filled those gaps, but Sina measures something else: on the 30 most-traded A-shares that day the two
+    agreed on the direction of the flow for only 18, with a correlation of 0.14, and on "inflow above CNY 30
+    million" for 11 of 26 (600410: East Money -175M, Sina +428M) - one list mixed two measures. `workers` is kept
+    for callers; East Money is asked three batches at a time.
     """
     cols = ["code", "main_net", "main_net_ratio", "xl_net", "l_net", "retail_net", "source"]
     if not codes:
         return pd.DataFrame(columns=cols)
     chunks = [codes[i:i + FLOW_CHUNK] for i in range(0, len(codes), FLOW_CHUNK)]
-    parts = []
     if sample.is_sample():
-        for res in http.pmap(eastmoney.main_flow_batch, chunks, workers=6):
-            if isinstance(res, pd.DataFrame) and not res.empty:
-                parts.append(res.reindex(columns=cols))
-    elif time.time() - _em_refused_at[0] < EM_SKIP_AFTER_REFUSAL:
-        log.info("eastmoney refused a probe in the last %d min: Sina only", EM_SKIP_AFTER_REFUSAL // 60)
-    else:
-        # Proving East Money is refusing costs ~20 s of patient retries; the worker stays running between jobs,
-        # so a refusal is remembered for 10 minutes and the next runs go to Sina at once (24 Nov 2026: 低位吸筹
-        # took 80 s instead of 60 s on every run while East Money refused the website).
-        rows, refused = eastmoney.gather(chunks, eastmoney.flow_rows, probe_tries=2)   # Sina covers the rest
-        if rows:
-            parts.append(pd.DataFrame(rows).reindex(columns=cols))
-        elif refused:
-            _em_refused_at[0] = time.time()
-        if refused:
-            log.info("eastmoney refused %d of %d flow batches", len(refused), len(chunks))
-    have = {c for p in parts for c in p["code"]}
-    missing = [c for c in codes if c not in have and market(c) == "CN"]
-    if missing:
-        rows = [r for r in http.pmap(sina.money_flow, missing, workers=workers) if isinstance(r, dict)]
-        if rows:
-            parts.append(pd.DataFrame(rows).reindex(columns=cols))
-    if not parts:
-        return pd.DataFrame(columns=cols)
-    return pd.concat(parts, ignore_index=True).drop_duplicates("code").reindex(columns=cols)
+        parts = [r.reindex(columns=cols) for r in http.pmap(eastmoney.main_flow_batch, chunks, workers=6)
+                 if isinstance(r, pd.DataFrame) and not r.empty]
+        return pd.concat(parts, ignore_index=True).drop_duplicates("code") if parts else pd.DataFrame(columns=cols)
+    rows, refused = eastmoney.gather(chunks, eastmoney.flow_rows)
+    if refused:
+        log.info("eastmoney refused %d of %d flow batches; those symbols stay unknown", len(refused), len(chunks))
+    return pd.DataFrame(rows, columns=cols).drop_duplicates("code") if rows else pd.DataFrame(columns=cols)
 
 
 def sources(df: pd.DataFrame) -> str:

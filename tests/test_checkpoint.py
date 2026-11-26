@@ -231,7 +231,7 @@ def test_backfill_rebuilds_a_past_session(tmp_path, monkeypatch):
     assert any("Rebuilt afterwards" in n for n in res["notes"])
 
 
-def test_past_flows_falls_back_when_east_money_refuses():
+def test_past_flows_leave_unknown_what_east_money_refuses():
     from stockrt import http
     from stockrt.sources import eastmoney, sina
 
@@ -242,7 +242,7 @@ def test_past_flows_falls_back_when_east_money_refuses():
         raise http.SourceUnavailable("blocked")
 
     with patch.object(eastmoney, "daily_flow", side_effect=refuse), \
-         patch.object(sina, "daily_flow", side_effect=lambda c, n=10: pd.DataFrame({"date": [DAY], "main_net": [1.0]})):
+         patch.object(sina, "daily_flow", side_effect=AssertionError("Sina measures something else: never mixed")):
         flows, src = checkpoint.past_flows([f"sh60000{i}" for i in range(10)], DAY)
     assert len(calls) == 6                                  # stops trying after 6 refusals in a row
-    assert len(flows) == 10 and set(src.values()) == {"sina"}
+    assert flows == {} and src == {}                        # unknown, not filled from another source

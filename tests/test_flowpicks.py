@@ -275,3 +275,44 @@ def test_a_live_run_without_money_flow_keeps_the_last_list(results, monkeypatch)
     with pytest.raises(http.SourceUnavailable):
         flowpicks.run(day, snap, now=datetime(2026, 11, 24, 10, 0, tzinfo=BJ))
     assert flowpicks.load(day) is None                               # nothing saved over the last good list
+
+
+def _dip_frame():
+    # a passes everything else; b misses one rule (profit); c misses two (drop and MA60)
+    return pd.DataFrame({"code": ["a", "b", "c"], "drop5": [-12.0, -12.0, -6.0], "drop5_rough": np.nan,
+                         "above_ma60_pct": [1.0, 1.0, -2.0], "profit_ttm": [1e8, -1e8, 1e8],
+                         "pct_change": [1.0, 1.0, 1.0]})
+
+
+def test_buy_the_dip_asks_money_flow_only_where_it_can_decide():
+    from stockrt import dipbuy
+
+    assert dipbuy.flow_candidates(_dip_frame()) == ["a", "b"]
+    assert dipbuy.flow_candidates(_dip_frame().assign(pct_change=[7.0, 1.0, 1.0])) == ["a", "b"]  # a one short
+    assert dipbuy.flow_candidates(_dip_frame().assign(pct_change=[1.0, 7.0, 1.0])) == ["a"]   # b now two short
+    assert dipbuy.flow_candidates(_dip_frame().iloc[:0]) == []
+
+
+def test_buy_the_dip_keeps_the_last_list_when_east_money_refuses_mid_session(results, monkeypatch):
+    from datetime import datetime
+
+    from stockrt import dipbuy, realtime
+    from stockrt.calendar import BJ
+
+    shortlist = _dip_frame().assign(name="X", price=10.0, prev_close=10.1, turnover_rate=1.0, float_mcap=1e10,
+                                    amount=1e7).drop(columns=["above_ma60_pct", "profit_ttm"])
+    monkeypatch.setattr(dipbuy, "shortlist", lambda snap, day: shortlist)
+    monkeypatch.setattr(dipbuy, "trend", lambda code, day, price, pc: {
+        "code": code, "above_ma60_pct": {"a": 1.0, "b": 1.0, "c": -2.0}[code]})
+    monkeypatch.setattr(dipbuy, "profit_ttm", lambda codes, day: pd.DataFrame(
+        {"code": ["a", "b", "c"], "profit_ttm": [1e8, -1e8, 1e8], "profit_basis": "x"}))
+    asked = []
+    monkeypatch.setattr(realtime, "main_flow", lambda codes, workers=8: asked.append(list(codes)) or pd.DataFrame(
+        columns=["code", "main_net", "source"]))
+    snap = pd.DataFrame({"time": [pd.Timestamp("2026-11-26 10:00", tz=BJ)]})
+    day = date(2026, 11, 26)
+    with pytest.raises(http.SourceUnavailable):
+        dipbuy.run(day, snap, now=datetime(2026, 11, 26, 10, 0, tzinfo=BJ))
+    assert asked == [["a", "b"]] and dipbuy.load(day) is None        # c can't pass: never asked; nothing saved
+    res = dipbuy.run(day, snap, now=datetime(2026, 11, 26, 15, 5, tzinfo=BJ))   # after the close: saved, flagged
+    assert res["final"] and any(n.startswith("Money flow unknown for 2") for n in res["notes"])

@@ -149,7 +149,8 @@ def main() -> int:
     def dip():
         day = checkpoint.session_day(cn_snapshot())
         saved = dipbuy.load(day)
-        if saved is not None and saved["final"]:
+        unknown = saved is not None and any(n.startswith("Money flow unknown") for n in saved["notes"])
+        if saved is not None and saved["final"] and not unknown:
             return f"{day} already saved"
         res = dipbuy.run(day, cn_snapshot(), workers=args.workers)
         return f"{day}: {int(dipbuy.apply(res['frame']).passes.sum())} of {res['shortlisted']}"
