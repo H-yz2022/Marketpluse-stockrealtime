@@ -1,0 +1,998 @@
+[
+ {
+  "at": "2026-11-28 03:07",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 2,
+    "result": "already saved"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": true,
+    "seconds": 1,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 1,
+    "result": "{'recorded': [], 'filled': 0, 'note': 'up to date'}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 0,
+    "result": "none missing"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to date"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "低位吸筹 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "Concept map (weekly)",
+    "ok": true,
+    "seconds": 0,
+    "result": "fresh (updated 2026-11-23; weekly)"
+   },
+   {
+    "step": "资金选股 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "主力暗中吸筹 (09:35 and 13:30)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to 2026-11-27"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "0 session files, 0 volume books and 0 screen files, 0 other files removed"
+   }
+  ]
+ },
+ {
+  "at": "2026-11-28 02:08",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 2,
+    "result": "already saved"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": true,
+    "seconds": 1,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 2,
+    "result": "{'recorded': [], 'filled': 0, 'note': 'up to date'}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 0,
+    "result": "none missing"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to date"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "低位吸筹 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "Concept map (weekly)",
+    "ok": true,
+    "seconds": 0,
+    "result": "fresh (updated 2026-11-23; weekly)"
+   },
+   {
+    "step": "资金选股 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "主力暗中吸筹 (09:35 and 13:30)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to 2026-11-27"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "0 session files, 0 volume books and 0 screen files, 0 other files removed"
+   }
+  ]
+ },
+ {
+  "at": "2026-11-28 02:05",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 2,
+    "result": "already saved"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": true,
+    "seconds": 1,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 2,
+    "result": "{'recorded': [], 'filled': 0, 'note': 'up to date'}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 0,
+    "result": "none missing"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to date"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "低位吸筹 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "Concept map (weekly)",
+    "ok": true,
+    "seconds": 0,
+    "result": "fresh (updated 2026-11-23; weekly)"
+   },
+   {
+    "step": "资金选股 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "主力暗中吸筹 (09:35 and 13:30)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to 2026-11-27"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "0 session files, 0 volume books and 0 screen files, 0 other files removed"
+   }
+  ]
+ },
+ {
+  "at": "2026-11-28 01:38",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 2,
+    "result": "already saved"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": true,
+    "seconds": 1,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 1,
+    "result": "{'recorded': [], 'filled': 0, 'note': 'up to date'}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 0,
+    "result": "none missing"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to date"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "低位吸筹 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "Concept map (weekly)",
+    "ok": true,
+    "seconds": 0,
+    "result": "fresh (updated 2026-11-23; weekly)"
+   },
+   {
+    "step": "资金选股 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "主力暗中吸筹 (09:35 and 13:30)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-27 already saved"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to 2026-11-27"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "0 session files, 0 volume books and 0 screen files, 0 other files removed"
+   }
+  ]
+ },
+ {
+  "at": "2026-11-28 01:34",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 2,
+    "result": "/home/runner/work/Marketpluse-stockrealtime/Marketpluse-stockrealtime/results/cn/volumes/2026-11-27.parquet"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 21,
+    "result": "2026-11-27 checkpoints ['14:00', '14:30', '15:00']"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": true,
+    "seconds": 6,
+    "result": "2026-11-27 checkpoints ['15:00', '15:30', '16:00']"
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 461,
+    "result": "{'recorded': ['2026-11-27'], 'new_picks': 436, 'filled': 1164}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 0,
+    "result": "none missing"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 10,
+    "result": "2026-11-27: 6 of 313"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 19,
+    "result": "2026-11-27: 0 of 469"
+   },
+   {
+    "step": "低位吸筹 (after the close)",
+    "ok": true,
+    "seconds": 3,
+    "result": "2026-11-27: 0 of 93"
+   },
+   {
+    "step": "Concept map (weekly)",
+    "ok": true,
+    "seconds": 0,
+    "result": "fresh (updated 2026-11-23; weekly)"
+   },
+   {
+    "step": "资金选股 (after the close)",
+    "ok": true,
+    "seconds": 20,
+    "result": "2026-11-27: 86 basic+advanced; 3- and 5-day money flow: eastmoney 984 (of 984 stocks above MA20)."
+   },
+   {
+    "step": "主力暗中吸筹 (09:35 and 13:30)",
+    "ok": true,
+    "seconds": 22,
+    "result": "2026-11-27: 13 of 443"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 81,
+    "result": "/home/runner/work/Marketpluse-stockrealtime/Marketpluse-stockrealtime/results/cn/panel.parquet"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "0 session files, 1 volume books and 3 screen files, 0 other files removed"
+   }
+  ]
+ },
+ {
+  "at": "2026-11-27 03:13",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 3,
+    "result": "already saved"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": true,
+    "seconds": 1,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 1,
+    "result": "{'recorded': [], 'filled': 0, 'note': 'up to date'}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 0,
+    "result": "none missing"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to date"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "低位吸筹 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "Concept map (weekly)",
+    "ok": true,
+    "seconds": 0,
+    "result": "fresh (updated 2026-11-23; weekly)"
+   },
+   {
+    "step": "资金选股 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "主力暗中吸筹 (morning checkpoints)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to 2026-11-26"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "0 session files, 0 volume books and 0 screen files, 0 other files removed"
+   }
+  ]
+ },
+ {
+  "at": "2026-11-27 02:23",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 2,
+    "result": "already saved"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": true,
+    "seconds": 1,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 1,
+    "result": "{'recorded': [], 'filled': 0, 'note': 'up to date'}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 0,
+    "result": "none missing"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to date"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "低位吸筹 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "Concept map (weekly)",
+    "ok": true,
+    "seconds": 0,
+    "result": "fresh (updated 2026-11-23; weekly)"
+   },
+   {
+    "step": "资金选股 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "主力暗中吸筹 (morning checkpoints)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to 2026-11-26"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "0 session files, 0 volume books and 0 screen files, 0 other files removed"
+   }
+  ]
+ },
+ {
+  "at": "2026-11-27 02:21",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 2,
+    "result": "already saved"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": true,
+    "seconds": 1,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 2,
+    "result": "{'recorded': [], 'filled': 0, 'note': 'up to date'}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 0,
+    "result": "none missing"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to date"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "低位吸筹 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "Concept map (weekly)",
+    "ok": true,
+    "seconds": 0,
+    "result": "fresh (updated 2026-11-23; weekly)"
+   },
+   {
+    "step": "资金选股 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "主力暗中吸筹 (morning checkpoints)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to 2026-11-26"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "0 session files, 0 volume books and 0 screen files, 0 other files removed"
+   }
+  ]
+ },
+ {
+  "at": "2026-11-27 01:53",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 3,
+    "result": "already saved"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": true,
+    "seconds": 1,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 2,
+    "result": "{'recorded': [], 'filled': 0, 'note': 'up to date'}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 0,
+    "result": "none missing"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to date"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "低位吸筹 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "Concept map (weekly)",
+    "ok": true,
+    "seconds": 0,
+    "result": "fresh (updated 2026-11-23; weekly)"
+   },
+   {
+    "step": "资金选股 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "主力暗中吸筹 (morning checkpoints)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-26 already saved"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to 2026-11-26"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "0 session files, 0 volume books and 0 screen files, 0 other files removed"
+   }
+  ]
+ },
+ {
+  "at": "2026-11-27 01:52",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 2,
+    "result": "/home/runner/work/Marketpluse-stockrealtime/Marketpluse-stockrealtime/results/cn/volumes/2026-11-26.parquet"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 12,
+    "result": "2026-11-26 checkpoints ['14:00', '14:30', '15:00']"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": true,
+    "seconds": 4,
+    "result": "2026-11-26 checkpoints ['15:00', '15:30', '16:00']"
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 406,
+    "result": "{'recorded': ['2026-11-26'], 'new_picks': 511, 'filled': 2146}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 0,
+    "result": "none missing"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 4,
+    "result": "2026-11-26: 9 of 78"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 19,
+    "result": "2026-11-26: 0 of 308"
+   },
+   {
+    "step": "低位吸筹 (after the close)",
+    "ok": true,
+    "seconds": 82,
+    "result": "2026-11-26: 0 of 3673"
+   },
+   {
+    "step": "Concept map (weekly)",
+    "ok": true,
+    "seconds": 0,
+    "result": "fresh (updated 2026-11-23; weekly)"
+   },
+   {
+    "step": "资金选股 (after the close)",
+    "ok": true,
+    "seconds": 37,
+    "result": "2026-11-26: 31 basic+advanced; 3- and 5-day money flow: eastmoney history 380 (of 380 stocks above MA20)."
+   },
+   {
+    "step": "主力暗中吸筹 (morning checkpoints)",
+    "ok": true,
+    "seconds": 40,
+    "result": "2026-11-26: 53 of 575"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 114,
+    "result": "/home/runner/work/Marketpluse-stockrealtime/Marketpluse-stockrealtime/results/cn/panel.parquet"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "0 session files, 1 volume books and 3 screen files, 0 other files removed"
+   }
+  ]
+ },
+ {
+  "at": "2026-11-26 03:30",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 3,
+    "result": "already saved"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-25 already saved"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": true,
+    "seconds": 1,
+    "result": "2026-11-25 already saved"
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 1,
+    "result": "{'recorded': [], 'filled': 0, 'note': 'up to date'}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 0,
+    "result": "none missing"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to date"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-25 already saved"
+   },
+   {
+    "step": "低位吸筹 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-25 already saved"
+   },
+   {
+    "step": "Concept map (weekly)",
+    "ok": true,
+    "seconds": 0,
+    "result": "fresh (updated 2026-11-23; weekly)"
+   },
+   {
+    "step": "资金选股 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-25 already saved"
+   },
+   {
+    "step": "主力暗中吸筹 (morning checkpoints)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-25 already saved"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to 2026-11-25"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "0 session files, 0 volume books and 0 screen files, 0 other files removed"
+   }
+  ]
+ },
+ {
+  "at": "2026-11-26 02:38",
+  "steps": [
+   {
+    "step": "Volume book",
+    "ok": true,
+    "seconds": 3,
+    "result": "already saved"
+   },
+   {
+    "step": "Front page, A-shares",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-25 already saved"
+   },
+   {
+    "step": "Front page, Hong Kong",
+    "ok": true,
+    "seconds": 1,
+    "result": "2026-11-25 already saved"
+   },
+   {
+    "step": "Strategy lab",
+    "ok": true,
+    "seconds": 1,
+    "result": "{'recorded': [], 'filled': 0, 'note': 'up to date'}"
+   },
+   {
+    "step": "Catch up missed sessions",
+    "ok": true,
+    "seconds": 0,
+    "result": "none missing"
+   },
+   {
+    "step": "After-close screen (16:00)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to date"
+   },
+   {
+    "step": "长线 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-25 already saved"
+   },
+   {
+    "step": "低位吸筹 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-25 already saved"
+   },
+   {
+    "step": "Concept map (weekly)",
+    "ok": true,
+    "seconds": 0,
+    "result": "fresh (updated 2026-11-23; weekly)"
+   },
+   {
+    "step": "资金选股 (after the close)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-25 already saved"
+   },
+   {
+    "step": "主力暗中吸筹 (morning checkpoints)",
+    "ok": true,
+    "seconds": 0,
+    "result": "2026-11-25 already saved"
+   },
+   {
+    "step": "History panel (for tomorrow's live updates)",
+    "ok": true,
+    "seconds": 0,
+    "result": "up to 2026-11-25"
+   },
+   {
+    "step": "Rolling window",
+    "ok": true,
+    "seconds": 0,
+    "result": "0 session files, 0 volume books and 0 screen files, 0 other files removed"
+   }
+  ]
+ }
+]
