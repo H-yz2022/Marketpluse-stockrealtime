@@ -259,7 +259,7 @@ def test_live_screens_are_computed_on_time_but_never_caught_up(monkeypatch):
     s = scheduler.Scheduler()
     s.tick(datetime(2026, 11, 17, 14, 5, tzinfo=BJ))            # Tuesday 14:05
     assert {"tail_1400", "dip_1400", "accumulation"} <= set(submitted)
-    assert not {"dip_1330", "acc_0945", "tail_1430"} & set(submitted)   # missed moments are not caught up
+    assert not {"dip_1330", "acc_0935", "tail_1430"} & set(submitted)   # missed moments are not caught up
     labels = [x["label"] for x in s.status(datetime(2026, 11, 17, 14, 5, tzinfo=BJ))]
     assert labels[0] == "主力暗中吸筹" and not any(" 1" in lbl or " 0" in lbl for lbl in labels[:1])
     assert len(labels) == 8                                        # the sidebar lists only the day's fixed results

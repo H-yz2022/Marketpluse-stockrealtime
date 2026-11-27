@@ -116,7 +116,7 @@ def market_clock() -> None:
                                                                          "(retries by itself; log on **Data sources**)"))
 
 
-CLOCK_EN = {"主力暗中吸筹": "Morning accumulation", "尾盘选股 15:00": "Late-session 15:00", "低位吸筹": "Buy the dip",
+CLOCK_EN = {"主力暗中吸筹": "Quiet accumulation", "尾盘选股 15:00": "Late-session 15:00", "低位吸筹": "Buy the dip",
             "长线": "Long-term", "收盘选股": "After-close", "港股 16:00": "Hong Kong 16:00",
             "资金选股": "Money-flow picks", "题材成分（每周）": "Concept members (weekly)"}
 

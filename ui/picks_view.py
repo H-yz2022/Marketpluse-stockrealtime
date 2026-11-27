@@ -98,7 +98,7 @@ def job_runner() -> jobs.ProcessRunner:
 
 FRONT_VIEWS = {
     "tail": ("尾盘选股", "Late-session"),
-    "acc": ("主力暗中吸筹", "Morning accumulation"),
+    "acc": ("主力暗中吸筹", "Quiet accumulation"),
     "dip": ("低位吸筹", "Buy the dip"),
     "flow": ("资金选股", "Money flow"),
     "hot": ("热点题材", "Hot themes"),

@@ -1,4 +1,4 @@
-"""Front-page screens: 主力暗中吸筹 (the morning accumulation screen), 长线 (after the close), 低位吸筹, and the two
+"""Front-page screens: 主力暗中吸筹 (quiet accumulation, 09:35 and 13:30), 长线 (after the close), 低位吸筹, and the two
 资金选股 screens (basic / advanced, and hot themes).
 
 Each keeps every candidate's measures, so the thresholds - edited right in the conditions table - re-filter
@@ -114,12 +114,13 @@ def themes_key(day) -> tuple:
 
 
 def accumulation_section() -> None:
-    st.subheader(t("主力暗中吸筹（9:45 – 11:15）", "Quiet accumulation by main funds (9:45 – 11:15)"), anchor=False)
+    st.subheader(t("主力暗中吸筹（9:35 · 13:30）", "Quiet accumulation by main funds (9:35 · 13:30)"), anchor=False)
     with st.container(border=True):
         st.markdown(f"**{t(accumulation.QUERY_ZH, accumulation.QUERY_EN)}**")
-        st.caption(t("这里的主力指新浪的特大单净流入（自开盘起累计）；环比是与上一个检查点比较（9:45 与 09:31 比较）。",
+        st.caption(t("这里的主力指新浪的特大单净流入（自开盘起累计）；环比是与上一个检查点比较"
+                     "（9:35 与 09:31 比较，13:30 与 9:35 比较）。",
                      "主力 here is Sina's extra-large-order (特大单) net inflow, cumulative from the open; 环比 compares "
-                     "each checkpoint with the previous one (09:31 for 9:45)."))
+                     "each checkpoint with the previous one (09:31 for 9:35, 9:35 for 13:30)."))
     if sample.is_sample():
         st.caption(t(*LIVE_ONLY))
         return
@@ -152,8 +153,8 @@ def accumulation_section() -> None:
         res = accumulation.load(older[0]) if older else None
         if res is None:
             if not reached:
-                st.caption(t(f"第一个检查点是北京时间 9:45（{_until(time(9, 46), now)}）。",
-                             f"The first checkpoint is 9:45 Beijing ({_until(time(9, 46), now)})."))
+                st.caption(t(f"第一个检查点是北京时间 9:35（{_until(time(9, 36), now)}）。",
+                             f"The first checkpoint is 9:35 Beijing ({_until(time(9, 36), now)})."))
             return
         st.caption(t(f":material/history: 显示最近保存的交易日：{fday(res['day'])}。",
                      f":material/history: Showing the latest saved session, {fday(res['day'])}."))

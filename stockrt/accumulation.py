@@ -1,7 +1,7 @@
-"""主力暗中吸筹 - quiet accumulation by main funds (the morning screen).
+"""主力暗中吸筹 - quiet accumulation by main funds (checkpoints 09:35 and 13:30).
 
     主力暗中吸筹筛选条件：请列出昨日（昨日数据）：成交量大于前4日成交量，今日（实时数据）：主力资金流向
-    环比增长率突增，-1%<涨幅<1%的股票（上午9:45，10:15，10:45，11:15）。
+    环比增长率突增，-1%<涨幅<1%的股票（上午9:35，下午13:30）。
 
 How it is read:
 
@@ -12,10 +12,11 @@ How it is read:
                          carries the price too. (East Money's 主力 - extra-large + large - blocks bulk minute
                          requests, so it can't serve a whole-market screen reliably.)
     环比增长率突增        at each checkpoint, the inflow grew by at least 100% since the previous checkpoint
-                         (09:31 - the opening auction's minute - for 09:45), by at least ¥3M, and is a net
-                         inflow (all adjustable)
+                         (09:31 - the opening auction's minute - for 09:35; 09:35 for 13:30), by at least ¥3M,
+                         and is a net inflow (all adjustable)
     -1% < 涨幅 < 1%      the price change at that checkpoint
-    时点                  09:45, 10:15, 10:45, 11:15 Beijing
+    时点                  09:35 and 13:30 Beijing (until 27 Nov 2026: 09:45, 10:15, 10:45, 11:15 - sessions saved
+                         then keep their own checkpoints)
 
 Each stock's minute series is downloaded once a checkpoint has passed; the result keeps
 every candidate's measures, so the thresholds can be changed on the page without downloading again.
@@ -36,12 +37,14 @@ from . import archive, http, opening, sample
 from .symbols import is_st
 
 QUERY_ZH = ("主力暗中吸筹筛选条件：请列出昨日（昨日数据）：成交量大于前4日成交量，"
-            "今日（实时数据）：主力资金流向环比增长率突增，-1%<涨幅<1%的股票（上午9:45，10:15，10:45，11:15）。")
+            "今日（实时数据）：主力资金流向环比增长率突增，-1%<涨幅<1%的股票（上午9:35，下午13:30）。")
 QUERY_EN = ("Quiet accumulation: stocks whose volume yesterday beat the previous 4 sessions, and whose main-fund net "
-            "inflow today surges from one checkpoint to the next while the price stays within ±1% (9:45, 10:15, "
-            "10:45, 11:15 Beijing).")
-CHECKPOINTS = ("09:45", "10:15", "10:45", "11:15")
-PREVIOUS = {"09:45": "09:31", "10:15": "09:45", "10:45": "10:15", "11:15": "10:45"}
+            "inflow today surges from one checkpoint to the next while the price stays within ±1% (9:35 and "
+            "13:30 Beijing).")
+CHECKPOINTS = ("09:35", "13:30")
+PREVIOUS = {"09:35": "09:31", "13:30": "09:35",
+            # sessions saved until 27 Nov 2026 used four morning checkpoints; their pages still read them
+            "09:45": "09:31", "10:15": "09:45", "10:45": "10:15", "11:15": "10:45"}
 GRACE = timedelta(minutes=1)
 
 

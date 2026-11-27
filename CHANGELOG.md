@@ -4,6 +4,8 @@ Every change to the website and the desktop app, newest first (from the project'
 
 ## 2026-11-26
 
+- **主力暗中吸筹: checkpoints 09:35 and 13:30**
+  - The screen now checks at 09:35 (inflow growth since the opening minute, 09:31) and 13:30 (since 09:35), instead of 09:45, 10:15, 10:45 and 11:15. Scheduled at 09:37 and, for the day's full result, 13:32. Sessions saved with the four morning checkpoints still open in the session picker. English name: Quiet accumulation.
 - **Money flow from East Money only; 低位吸筹 asks only for the stocks it can decide**
   - Today's main-fund flow no longer fills East Money's gaps with Sina's figures, which measure something else: on the 30 most-traded A-shares (26 Nov 2026) the two agreed on direction for 18, correlation 0.14, and on "inflow above CNY 30M" for 11 of 26 - so 低位吸筹, 尾盘选股, the screener, the Strategy lab and the live page were mixing two measures. Stocks East Money doesn't answer for are unknown (the rule reads as unmet, the notes say how many); the same for rebuilding a past 尾盘选股 session (Sina's daily figure: 茅台 -832M vs East Money +469M on 23 Nov).
   - 低位吸筹 now fetches money flow only for the stocks that meet the other conditions or are one short (754 of 3,669 on 26 Nov), so East Money refuses it less often. Mid-session, if East Money refuses most of it, the last list stays; a fixed list with unknown flow is recomputed by the GitHub job, where East Money answers.

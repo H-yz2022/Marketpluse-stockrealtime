@@ -187,7 +187,7 @@ def minute_flow(code: str) -> pd.DataFrame:
 
 def minute_flow_at(code: str, times: tuple[str, ...]) -> tuple[str | None, dict[str, tuple[float, float]]]:
     """Just the minutes asked for (HH:MM): {time: (extra-large-order net inflow, change %)} and the session
-    date - plain parsing, no table per stock (the morning screen reads hundreds of these)."""
+    date - plain parsing, no table per stock (主力暗中吸筹 reads hundreds of these)."""
     d = _json(API + "MoneyFlow.ssx_ggzj_fszs", {"daima": code, "num": 300})
     rows = d[1] if isinstance(d, list) and len(d) > 1 else []
     want = set(times)

@@ -1,6 +1,6 @@
 """History panel: the last 130 sessions of daily bars for every A-share, in one file.
 
-The live rebuilds (尾盘选股 checkpoints, the morning accumulation screen, the 长线 screen) need each
+The live rebuilds (尾盘选股 checkpoints, the quiet-accumulation screen, the 长线 screen) need each
 candidate's recent history - moving averages, yesterday's volume, the 5-session average. Fetching it per
 stock doubled the requests of every live update. The daily job saves this panel after the close
 (results/cn/panel.parquet, replaced each day), so during the next session the history is read from disk

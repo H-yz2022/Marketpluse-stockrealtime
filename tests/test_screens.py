@@ -15,14 +15,20 @@ def test_accumulation_surge_and_price_band():
     f = pd.DataFrame({
         "code": ["a", "b", "c", "d"], "name": list("甲乙丙丁"), "yday_vs_ref": [2.0, 1.5, 1.2, 3.0],
         "flow_09:31": [1e6, 1e6, -2e6, 1e6],
-        "flow_09:45": [5e6, 1.5e6, 2e6, 9e6],          # a: +400% (+4M) b: +50% c: outflow -> inflow d: +800%
-        "pct_09:45": [0.5, 0.2, -0.3, 1.0],             # d: exactly +1% is outside (-1, 1)
+        "flow_09:35": [5e6, 1.5e6, 2e6, 9e6],          # a: +400% (+4M) b: +50% c: outflow -> inflow d: +800%
+        "pct_09:35": [0.5, 0.2, -0.3, 1.0],             # d: exactly +1% is outside (-1, 1)
     })
-    d = accumulation.apply(f, ("09:45",)).set_index("code")
-    assert d.loc["a", "hit_09:45"] and d.loc["c", "hit_09:45"]
-    assert not d.loc["b", "hit_09:45"] and not d.loc["d", "hit_09:45"]
-    loose = accumulation.apply(f, ("09:45",), accumulation.Params(surge_pct=40, min_increase_m=0.4)).set_index("code")
-    assert loose.loc["b", "hit_09:45"]
+    d = accumulation.apply(f, ("09:35",)).set_index("code")
+    assert d.loc["a", "hit_09:35"] and d.loc["c", "hit_09:35"]
+    assert not d.loc["b", "hit_09:35"] and not d.loc["d", "hit_09:35"]
+    loose = accumulation.apply(f, ("09:35",), accumulation.Params(surge_pct=40, min_increase_m=0.4)).set_index("code")
+    assert loose.loc["b", "hit_09:35"]
+    # 13:30 is compared with 09:35; a session saved with the old morning checkpoints still reads
+    later = f.assign(**{"flow_13:30": [20e6, 1.6e6, 2e6, 9e6], "pct_13:30": 0.1})
+    assert accumulation.apply(later, ("09:35", "13:30")).set_index("code").loc["a", "hit_13:30"]   # +300%
+    old = f.rename(columns={"flow_09:35": "flow_09:45", "pct_09:35": "pct_09:45"})
+    assert accumulation.apply(old, ("09:45",)).set_index("code").loc["a", "hit_09:45"]
+    assert accumulation.CHECKPOINTS == ("09:35", "13:30")
 
 
 def test_accumulation_needs_five_volume_books(tmp_path, monkeypatch):

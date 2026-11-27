@@ -45,7 +45,7 @@ def _intraday() -> tuple[Task, ...]:
     before anyone opens it: 主力暗中吸筹 after each morning checkpoint, 尾盘选股 at 14:00 and 14:30, and 低位吸筹
     and 资金选股 / 热点题材 every half hour. Each has 20-25 minutes to finish before it counts as missed."""
     tasks = [Task(f"acc_{c.replace(':', '')}", f"主力暗中吸筹 {c}", _at(c, 2), _at(c, 22), intraday=True)
-             for c in ("09:45", "10:15", "10:45")]
+             for c in ("09:35",)]
     tasks += [Task("tail_1400", "尾盘选股 14:00", _at("14:00", 1), _at("14:00", 25), intraday=True),
               Task("tail_1430", "尾盘选股 14:30", _at("14:30", 1), _at("14:30", 25), intraday=True)]
     tasks += [Task(f"dip_{c.replace(':', '')}", f"低位吸筹 {c}", _at(c), _at(c, 20), intraday=True)
@@ -56,7 +56,7 @@ def _intraday() -> tuple[Task, ...]:
 
 
 TASKS = _intraday() + (
-    Task("accumulation", "主力暗中吸筹", time(11, 16), time(11, 40)),
+    Task("accumulation", "主力暗中吸筹", time(13, 32), time(13, 55)),
     Task("cn_close", "尾盘选股 15:00", time(15, 2), time(15, 20)),
     Task("dipbuy", "低位吸筹", time(15, 3), time(15, 30)),
     Task("longterm", "长线", time(15, 6), time(15, 40)),
